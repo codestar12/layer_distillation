@@ -293,7 +293,7 @@ if __name__ == "__main__":
         
         replacement_layers.compile(loss=loss_object, optimizer=optimizer)
         
-        save = tf.keras.callbacks.ModelCheckpoint(model_path + file_name, 
+        save = tf.keras.callbacks.ModelCheckpoint(model_path + model_name, 
                                                 verbose=1, 
                                                 save_weights_only=True,
                                                 save_best_only=True)
