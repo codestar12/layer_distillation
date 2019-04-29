@@ -9,6 +9,8 @@ import tensorflow as tf
 import tensorflow.keras.layers as layers
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import argparse
+import time
+import json
 
 # In[2]:
 
@@ -92,6 +94,17 @@ if __name__ == "__main__":
                         type=str,
                         default='./vgg16_cifar10.h5')
 
+    parser.add_argument('-sl',
+                        '--save_logs',
+                        help='whether to save training logs',
+                        type=bool,
+                        default=True)
+
+    parser.add_argument('-ld',
+                        '--log_dir',
+                        help='file path to save logs',
+                        default='./logs/refactor_log.json')
+
 
 
     args = parser.parse_args()
@@ -102,6 +115,13 @@ if __name__ == "__main__":
     replace_path, replace_name = os.path.split(args.replace_directory)
     if not os.path.exists(replace_path):
         os.mkdir(replace_path)
+    
+    log_path = log_name = None
+    log = {}
+    if args.save_logs:
+        log_path, log_name = os.path.split(args.log_dir)
+        if not os.path.exists(log_path):
+            os.mkdir(log_path)
 
 
 
@@ -154,7 +174,8 @@ if __name__ == "__main__":
     scores = model.evaluate(x_test, y_test, verbose=1)
     print('Test loss:', scores[0])
     print('Test accuracy:', scores[1])
-
+    log['original_acc'] = scores[1]
+    log['original_loss'] = scores[0]
 
     # In[ ]:
 
@@ -270,7 +291,15 @@ if __name__ == "__main__":
     datagen.fit(x_train)
 
     import gc
+    # we ignore the first conv layer 
+    num_targets = len(targets) - 1 
+    start_time = time.time()
+    layer_counter = 1
+    log['layer'] = []
+
     while len(targets) > 1:
+        layer_start_time = time.time()
+        layer_log = {'layer' : layer_counter}
         
         print(f'targets {targets}')
         print("taking target")
@@ -305,6 +334,8 @@ if __name__ == "__main__":
                                         epochs=args.layer_train_epochs, 
                                         validation_data=test_gen ,
                                         verbose=1, callbacks=[save])
+
+
         
         print('saving replacement layers to json')
         
@@ -320,7 +351,10 @@ if __name__ == "__main__":
         print('loading replacement layers weights')
         replacement_layers.load_weights(model_path + '/' + 'replacement_layer.h5')
         replacement_layers.compile(loss=loss_object, optimizer=optimizer)
-        replacement_layers.evaluate_generator(test_gen)
+        layer_loss = replacement_layers.evaluate_generator(test_gen)
+        print(f'layer loss: {layer_loss}')
+        
+        layer_log['loss'] = layer_loss
         # build top half of model
         print('building top half of model')
         get_output = tf.keras.Model(inputs=model.input, outputs=[model.layers[target - 1].output])
@@ -351,6 +385,9 @@ if __name__ == "__main__":
         scores = combined.evaluate(x_test, y_test, verbose=1)
         print('Test loss:', scores[0])
         print('Test accuracy:', scores[1])
+
+        layer_log['model_loss'] = scores[0]
+        layer_log['acc'] = scores[1]
         
         new_combined = tf.keras.Sequential()
         new_layers = []
@@ -426,12 +463,28 @@ if __name__ == "__main__":
         
         print('loading best weights from fine tune')
         new_combined.load_weights(model_path + '/' + model_name)
+
+        print('testing fine-tuned combined model')
+        scores = new_combined.evaluate(x_test, y_test, verbose=1)
+        print('Test loss:', scores[0])
+        print('Test accuracy:', scores[1])
+        layer_log['fine_tune_model_loss'] = scores[0]
+        layer_log['fine_tune_acc'] = scores[1] 
+        layer_end_time = time.time()
+        layer_log['train_time'] = layer_end_time - layer_start_time
+        log['layer'].append(layer_log)
         
         model = new_combined
         del new_combined
         print('new summary')
         model.summary()
         targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
-        
+    
+    end_time = time.time()
+    log['train_time'] = end_time - start_time
+
+    if args.save_logs:
+        with open(log_path + '/' + log_name) as f:
+            json.dump(log, f)
         
 
