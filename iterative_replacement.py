@@ -174,8 +174,8 @@ if __name__ == "__main__":
     scores = model.evaluate(x_test, y_test, verbose=1)
     print('Test loss:', scores[0])
     print('Test accuracy:', scores[1])
-    log['original_acc'] = scores[1]
-    log['original_loss'] = scores[0]
+    log['original_acc'] = float(scores[1])
+    log['original_loss'] = float(scores[0])
 
     # In[ ]:
 
@@ -354,7 +354,7 @@ if __name__ == "__main__":
         layer_loss = replacement_layers.evaluate_generator(test_gen)
         print(f'layer loss: {layer_loss}')
         
-        layer_log['loss'] = layer_loss
+        layer_log['loss'] = float(layer_loss)
         # build top half of model
         print('building top half of model')
         get_output = tf.keras.Model(inputs=model.input, outputs=[model.layers[target - 1].output])
@@ -386,8 +386,8 @@ if __name__ == "__main__":
         print('Test loss:', scores[0])
         print('Test accuracy:', scores[1])
 
-        layer_log['model_loss'] = scores[0]
-        layer_log['acc'] = scores[1]
+        layer_log['model_loss'] = float(scores[0])
+        layer_log['acc'] = float(scores[1])
         
         new_combined = tf.keras.Sequential()
         new_layers = []
@@ -453,7 +453,7 @@ if __name__ == "__main__":
                                                     save_weights_only=False, 
                                                     save_best_only=True)
         print('fine tuning combined model')
-        #new_combined.fit(x=x_train, y=y_train, validation_data=(x_test, y_test), epochs=5, callbacks=[new_save])
+#         new_combined.fit(x=x_train, y=y_train, validation_data=(x_test, y_test), epochs=5, callbacks=[new_save])
         new_combined.fit_generator(datagen.flow(x_train, y_train,
                                         batch_size=batch_size),
                             epochs=args.model_train_epochs,
@@ -468,10 +468,10 @@ if __name__ == "__main__":
         scores = new_combined.evaluate(x_test, y_test, verbose=1)
         print('Test loss:', scores[0])
         print('Test accuracy:', scores[1])
-        layer_log['fine_tune_model_loss'] = scores[0]
-        layer_log['fine_tune_acc'] = scores[1] 
+        layer_log['fine_tune_model_loss'] = float(scores[0])
+        layer_log['fine_tune_acc'] = float(scores[1]) 
         layer_end_time = time.time()
-        layer_log['train_time'] = layer_end_time - layer_start_time
+        layer_log['train_time'] = float(layer_end_time - layer_start_time)
         log['layer'].append(layer_log)
         
         model = new_combined
@@ -479,12 +479,13 @@ if __name__ == "__main__":
         print('new summary')
         model.summary()
         targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
+        layer_counter += 1
     
     end_time = time.time()
-    log['train_time'] = end_time - start_time
+    log['train_time'] = float(end_time - start_time)
 
     if args.save_logs:
-        with open(log_path + '/' + log_name) as f:
+        with open(log_path + '/' + log_name, 'w') as f:
             json.dump(log, f)
         
 
