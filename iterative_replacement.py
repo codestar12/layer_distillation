@@ -11,6 +11,7 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import argparse
 import time
 import json
+import pathlib
 
 # In[2]:
 
@@ -45,6 +46,8 @@ from keras.datasets import cifar10
 from keras.datasets import cifar100
 from keras.preprocessing.image import ImageDataGenerator
 import os
+
+AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
 def normalize_production(x):
@@ -127,7 +130,7 @@ if __name__ == "__main__":
 
 
     batch_size = 32
-    if args.dataset == 'cifar10':
+    if args.dataset == 'cifar10' or args.dataset == 'ds+cifar10':
         num_classes = 10
         (x_train, y_train), (x_test, y_test) = cifar10.load_data()
     else:
@@ -191,12 +194,39 @@ if __name__ == "__main__":
 
 
     # In[ ]:
+    def preprocess_image(image):
+        image = tf.io.decode_png(image, channels=3)
+        image = tf.image.resize(image, [32, 32])
+        image /= 255
 
+        return image
 
-    dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
+    def load_and_preprocess_image(path):
+        image = tf.io.read_file(path)
+        return preprocess_image(image)
 
-    dataset = dataset.batch(batch_size)
-    dataset = dataset.repeat()
+    dataset = None
+    if 'ds' not in args.dataset:
+        dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
+
+        dataset = dataset.batch(batch_size)
+        dataset = dataset.repeat()
+    else:
+        image_count = len(all_image_paths)
+        data_root = pathlib.Path('/home/cody/layer-distillation//data/train_32x32/')
+        all_image_paths = list(data_root.glob('*'))
+        all_image_paths = [str(path) for path in all_image_paths]
+        random.shuffle(all_image_paths)
+        all_image_labels = [0 for _ in all_image_paths]
+        path_ds = tf.data.Dataset.from_tensor_slices(all_image_paths)
+        image_ds = path_ds.map(load_and_preprocess_image, num_parallel_calls=AUTOTUNE)
+        label_ds = tf.data.Dataset.from_tensor_slices(tf.cast(all_image_labels, tf.int64))
+        image_label_ds = tf.data.Dataset.zip((image_ds, label_ds))
+        dataset = image_label_ds.shuffle(buffer_size=image_count)
+        dataset = dataset.batch(batch_size)
+        dataset = dataset.repeat()
+        dataset = dataset.prefetch(buffer_size=AUTOTUNE)
+
 
     dataset_test = tf.data.Dataset.from_tensor_slices((x_test, y_test))
 
