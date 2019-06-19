@@ -1,19 +1,19 @@
 
 from __future__ import print_function
-import keras
-from keras.datasets import cifar100
-from keras.preprocessing.image import ImageDataGenerator
-from keras.models import Sequential
-from keras.layers import Dense, Dropout, Activation, Flatten
-from keras.layers import Conv2D, MaxPooling2D, BatchNormalization
-from keras import optimizers
+import tensorflow.keras as keras
+from tensorflow.keras.datasets import cifar100
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout, Activation, Flatten
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, BatchNormalization
+from tensorflow.keras import optimizers
 import numpy as np
-from keras.layers.core import Lambda
-from keras import backend as K
-from keras import regularizers
+from tensorflow.keras.layers import Lambda
+from tensorflow.keras import backend as K
+from tensorflow.keras import regularizers
 
 class cifar100vgg:
-    def __init__(self,train=True):
+    def __init__(self,train=False):
         self.num_classes = 100
         self.weight_decay = 0.0005
         self.x_shape = [32,32,3]
@@ -213,6 +213,7 @@ if __name__ == '__main__':
     predicted_x = model.predict(x_test)
     residuals = (np.argmax(predicted_x,1)!=np.argmax(y_test,1))
     loss = sum(residuals)/len(residuals)
+    model.model.save('cifar100vgg_pretrained.h5')
     print("the validation 0/1 loss is: ",loss)
 
 

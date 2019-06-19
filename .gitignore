@@ -1,2 +1,5 @@
 *.h5
 *.hdf5
+./data/**
+.ipynb_checkpoints/**
+./models/**

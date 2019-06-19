@@ -62,7 +62,7 @@ if __name__ == "__main__":
     parser.add_argument('-ds', 
                         '--dataset', 
                         help='Which dataset to use (cifar10 or cifar100)',
-                        choices=['cifar10', 'cifar100'],
+                        choices=['cifar10', 'cifar100', 'ds+cifar10', 'ds+cifar100'],
                         default='cifar10')
     parser.add_argument('-n',
                         '--norm', 
@@ -117,7 +117,8 @@ if __name__ == "__main__":
         os.mkdir(replace_path)
     
     log_path = log_name = None
-    log = {}
+    log = {'model_epocss': args.model_train_epochs,
+           'layer_epochs' : args.layer_train_epochs}
     if args.save_logs:
         log_path, log_name = os.path.split(args.log_dir)
         if not os.path.exists(log_path):
@@ -152,7 +153,7 @@ if __name__ == "__main__":
     if args.norm == 'std' :
         x_train /= 255
         x_test /= 255
-    elif args.normalize == 'prod':
+    elif args.norm == 'prod':
         x_train = normalize_production(x_train)
         x_test = normalize_production(x_test)
     else:
@@ -211,16 +212,24 @@ if __name__ == "__main__":
         X = tf.keras.layers.SeparableConv2D(filters=get_output.output[1].shape[-1], 
                                             kernel_size= (3,3),
                                             padding='Same')(inputs)
-        X = tf.keras.layers.BatchNormalization()(X)
-        X = tf.keras.layers.ReLU()(X)
+        X = tf.keras.layers.BatchNormalization(name=f"replacement_batchnorm_{build_replacement.counter}")(X)
+        X = tf.keras.layers.ReLU(name=f"replacement_relu_{build_replacement.counter}")(X)
+        
+        build_replacement.counter += 1
+        
         X = tf.keras.layers.SeparableConv2D(filters=get_output.output[1].shape[-1],
                                             kernel_size=(3,3), 
                                             padding='Same')(X)
-        X = tf.keras.layers.BatchNormalization()(X)
-        X = tf.keras.layers.ReLU()(X)
+        X = tf.keras.layers.BatchNormalization(name=f"replacement_batchnorm_{build_replacement.counter}")(X)
+        X = tf.keras.layers.ReLU(name=f"replacement_relu_{build_replacement.counter}")(X)
+        
+        build_replacement.counter += 1
+        
         replacement_layers = tf.keras.Model(inputs=inputs, outputs=X)
+        
         return replacement_layers
 
+    build_replacement.counter = 0
 
     # In[ ]:
 
@@ -329,11 +338,18 @@ if __name__ == "__main__":
         train_gen = LayerBatch(get_output, dataset)
         test_gen = LayerTest(get_output, dataset_test)
         
+        ReduceLR = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.1,
+                                                        patience=5, min_lt=.00001, verbose=1)
+        
+        earlyStop = tf.keras.callbacks.EarlyStopping(patience=12, verbose=1)
+
+        
         print(f'starting fit generator for target layer {target}')
         replacement_layers.fit_generator(generator=train_gen, 
                                         epochs=args.layer_train_epochs, 
                                         validation_data=test_gen ,
-                                        verbose=1, callbacks=[save])
+                                        verbose=1, callbacks=[save, ReduceLR, earlyStop])
+        
 
 
         
@@ -388,6 +404,8 @@ if __name__ == "__main__":
 
         layer_log['model_loss'] = float(scores[0])
         layer_log['acc'] = float(scores[1])
+        
+        old_loss = scores[0]
         
         new_combined = tf.keras.Sequential()
         new_layers = []
@@ -453,6 +471,8 @@ if __name__ == "__main__":
                                                     save_weights_only=False, 
                                                     save_best_only=True)
         print('fine tuning combined model')
+        
+        new_combined.save_weights(model_path + '/' + model_name + 'holdout')
 #         new_combined.fit(x=x_train, y=y_train, validation_data=(x_test, y_test), epochs=5, callbacks=[new_save])
         new_combined.fit_generator(datagen.flow(x_train, y_train,
                                         batch_size=batch_size),
@@ -473,6 +493,10 @@ if __name__ == "__main__":
         layer_end_time = time.time()
         layer_log['train_time'] = float(layer_end_time - layer_start_time)
         log['layer'].append(layer_log)
+        
+        if old_loss < scores[0]:
+            print('loading none finetuned weightss')
+            new_combined.load_weights(model_path + '/' + model_name + 'holdout')
         
         model = new_combined
         del new_combined
