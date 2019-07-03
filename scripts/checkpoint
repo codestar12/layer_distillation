@@ -1,0 +1,2 @@
+model_checkpoint_path: "refactored_model.h5holdout"
+all_model_checkpoint_paths: "refactored_model.h5holdout"

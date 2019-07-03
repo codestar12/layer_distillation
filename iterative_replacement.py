@@ -12,6 +12,7 @@ import argparse
 import time
 import json
 import pathlib
+import random
 
 # In[2]:
 
@@ -197,7 +198,10 @@ if __name__ == "__main__":
     def preprocess_image(image):
         image = tf.io.decode_png(image, channels=3)
         image = tf.image.resize(image, [32, 32])
-        image /= 255
+        if args.norm == 'prod':
+            image = normalize_production(image)
+        else:
+            image /= 255
 
         return image
 
@@ -212,17 +216,17 @@ if __name__ == "__main__":
         dataset = dataset.batch(batch_size)
         dataset = dataset.repeat()
     else:
-        image_count = len(all_image_paths)
         data_root = pathlib.Path('/home/cody/layer-distillation//data/train_32x32/')
         all_image_paths = list(data_root.glob('*'))
         all_image_paths = [str(path) for path in all_image_paths]
+        image_count = len(all_image_paths)
         random.shuffle(all_image_paths)
         all_image_labels = [0 for _ in all_image_paths]
         path_ds = tf.data.Dataset.from_tensor_slices(all_image_paths)
         image_ds = path_ds.map(load_and_preprocess_image, num_parallel_calls=AUTOTUNE)
         label_ds = tf.data.Dataset.from_tensor_slices(tf.cast(all_image_labels, tf.int64))
         image_label_ds = tf.data.Dataset.zip((image_ds, label_ds))
-        dataset = image_label_ds.shuffle(buffer_size=image_count)
+        dataset = image_label_ds.shuffle(buffer_size=800000)
         dataset = dataset.batch(batch_size)
         dataset = dataset.repeat()
         dataset = dataset.prefetch(buffer_size=AUTOTUNE)
@@ -272,7 +276,9 @@ if __name__ == "__main__":
             self.dataset = dataset.__iter__()
             
         def __len__(self):
+
             return math.ceil(50000 / 32)
+            
         
         def __getitem__(self, index):
             X, y = self.input_model(next(self.dataset))
@@ -355,7 +361,12 @@ if __name__ == "__main__":
         
         replacement_len = len(replacement_layers.layers)
         
-        optimizer = tf.keras.optimizers.RMSprop(learning_rate=.001)
+        learning_rate=.001
+        
+#         if 'ds' in args.dataset:
+#             learning_rate=.01
+        
+        optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
 
         loss_object = tf.losses.MeanSquaredError()
         
