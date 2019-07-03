@@ -191,7 +191,7 @@ if __name__ == "__main__":
     # In[ ]:
 
 
-    targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
+    
 
 
     # In[ ]:
@@ -265,7 +265,62 @@ if __name__ == "__main__":
 
     build_replacement.counter = 0
 
-    # In[ ]:
+    def train_replacement(model, target):
+        get_output = tf.keras.Model(inputs=model.input, outputs=[model.layers[target - 1].output,model.layers[target].output])
+        
+        print(f'making replacement layers for target layer {target}')
+        replacement_layers = build_replacement(get_output)
+        
+        replacement_len = len(replacement_layers.layers)
+        
+        learning_rate=.001
+        
+        optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
+
+        loss_object = tf.losses.MeanSquaredError()
+        
+        replacement_layers.compile(loss=loss_object, optimizer=optimizer)
+        
+        save = tf.keras.callbacks.ModelCheckpoint(model_path + '/{}_replacement_layer.h5'.format(target), 
+                                                verbose=1, 
+                                                save_weights_only=True,
+                                                save_best_only=True)
+        train_gen = LayerBatch(get_output, dataset)
+        test_gen = LayerTest(get_output, dataset_test)
+        
+        ReduceLR = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.1,
+                                                        patience=5, min_lt=.00001, verbose=1)
+        
+        earlyStop = tf.keras.callbacks.EarlyStopping(patience=12, verbose=1)
+
+        
+        print(f'starting fit generator for target layer {target}')
+        replacement_layers.fit_generator(generator=train_gen, 
+                                        epochs=args.layer_train_epochs, 
+                                        validation_data=test_gen ,
+                                        verbose=1, callbacks=[save, ReduceLR, earlyStop])
+        
+
+
+        
+        print('saving replacement layers to json')
+        
+        replacement_json = replacement_layers.to_json()
+        with open(model_path + '/{}_replacement_layer.json'.format(target), 'w') as json_file:
+            json_file.write(replacement_json)
+            
+        del replacement_layers
+        
+        with open(model_path + '/{}_replacement_layer.json'.format(target), 'r') as json_file:
+            replacement_layers = tf.keras.models.model_from_json(json_file.read())
+
+        print('loading replacement layers weights')
+        replacement_layers.load_weights(model_path + '/{}_replacement_layer.h5'.format(target))
+        replacement_layers.compile(loss=loss_object, optimizer=optimizer)
+        layer_loss = replacement_layers.evaluate_generator(test_gen)
+        print(f'layer loss: {layer_loss}')
+
+        return replacement_layers, '{}/{}_replacement_layer.h5'.format(model_path,target), layer_loss
 
 
     import math
@@ -336,215 +391,18 @@ if __name__ == "__main__":
     datagen.fit(x_train)
 
     import gc
-    # we ignore the first conv layer 
-    num_targets = len(targets) - 1 
+    # we ignore the first conv laye
+
+    targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
+    targets.pop(0)
+    num_targets = len(targets)
     start_time = time.time()
     layer_counter = 1
     log['layer'] = []
 
-    while len(targets) > 1:
-        layer_start_time = time.time()
-        layer_log = {'layer' : layer_counter}
-        
-        print(f'targets {targets}')
-        print("taking target")
-        target = targets[1]
-        
-        print(f'making output for target layer {target}')
-        
-        get_output = tf.keras.Model(inputs=model.input, 
-                                    outputs=[model.layers[target - 1].output,
-                                            model.layers[target].output])
-        
-        print(f'making replacement layers for target layer {target}')
-        replacement_layers = build_replacement(get_output)
-        
-        replacement_len = len(replacement_layers.layers)
-        
-        learning_rate=.001
-        
-#         if 'ds' in args.dataset:
-#             learning_rate=.01
-        
-        optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
-
-        loss_object = tf.losses.MeanSquaredError()
-        
-        replacement_layers.compile(loss=loss_object, optimizer=optimizer)
-        
-        save = tf.keras.callbacks.ModelCheckpoint(model_path + '/' + 'replacement_layer.h5', 
-                                                verbose=1, 
-                                                save_weights_only=True,
-                                                save_best_only=True)
-        train_gen = LayerBatch(get_output, dataset)
-        test_gen = LayerTest(get_output, dataset_test)
-        
-        ReduceLR = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.1,
-                                                        patience=5, min_lt=.00001, verbose=1)
-        
-        earlyStop = tf.keras.callbacks.EarlyStopping(patience=12, verbose=1)
-
-        
-        print(f'starting fit generator for target layer {target}')
-        replacement_layers.fit_generator(generator=train_gen, 
-                                        epochs=args.layer_train_epochs, 
-                                        validation_data=test_gen ,
-                                        verbose=1, callbacks=[save, ReduceLR, earlyStop])
-        
-
-
-        
-        print('saving replacement layers to json')
-        
-        replacement_json = replacement_layers.to_json()
-        with open(model_path + '/' +'replacement_layer.json', 'w') as json_file:
-            json_file.write(replacement_json)
-            
-        del replacement_layers
-        
-        with open(model_path + '/' +'replacement_layer.json', 'r') as json_file:
-            replacement_layers = tf.keras.models.model_from_json(json_file.read())
-
-        print('loading replacement layers weights')
-        replacement_layers.load_weights(model_path + '/' + 'replacement_layer.h5')
-        replacement_layers.compile(loss=loss_object, optimizer=optimizer)
-        layer_loss = replacement_layers.evaluate_generator(test_gen)
-        print(f'layer loss: {layer_loss}')
-        
-        layer_log['loss'] = float(layer_loss)
-        # build top half of model
-        print('building top half of model')
-        get_output = tf.keras.Model(inputs=model.input, outputs=[model.layers[target - 1].output])
-        # add in replacement layers
-        print('building middle of model with replacement layers')
-        new_joint = tf.keras.Model(inputs=get_output.input, outputs=replacement_layers(get_output.output))
-        
-        # build bottom of model
-        bottom_half = tf.keras.Sequential()
-        for layer in model.layers[target + 1::]:
-            bottom_half.add(layer)
-        
-        print('building bottom of model')
-        bottom_half.build(input_shape=new_joint.output.shape)
-        print('combining model')
-        combined = tf.keras.Model(inputs=new_joint.input, outputs=bottom_half(new_joint.output))
-        
-        combined.layers[-1].trainable=False
-        opt = keras.optimizers.RMSprop(lr=0.00005, decay=1e-6)
-        combined.compile(loss='categorical_crossentropy',
-                optimizer=opt,
-                metrics=['accuracy'])
-
-
-        del bottom_half, new_joint, replacement_layers, model
-        
-        print('testing combined model')
-        scores = combined.evaluate(x_test, y_test, verbose=1)
-        print('Test loss:', scores[0])
-        print('Test accuracy:', scores[1])
-
-        layer_log['model_loss'] = float(scores[0])
-        layer_log['acc'] = float(scores[1])
-        
-        old_loss = scores[0]
-        
-        new_combined = tf.keras.Sequential()
-        new_layers = []
-        new_combined.add(tf.keras.layers.Input(shape=(32,32,3)))
-        accum = 0
-        print('refactoring model')
-        for layer in combined.layers:
-            if hasattr(layer, 'layers'):
-                for sublayer in layer.layers:
-                    if(sublayer.__class__.__name__ != 'InputLayer'): 
-                        new_layers.append((sublayer.__class__.__name__, sublayer.get_config(), accum))
-                    accum += 1
-            elif layer.__class__.__name__ != 'InputLayer':          
-                new_layers.append((layer.__class__.__name__, layer.get_config(), accum))
-                accum += 1 
-                
-            
-
-
-
-
-        for i, layer in enumerate(new_layers):
-            new_combined.add(keras.layers.deserialize(
-                                    {'class_name': layer[0], 
-                                    'config': layer[1]}))
-
-        new_combined.build()
-
-        accum = 0
-        for i, layer in enumerate(combined.layers):
-            if hasattr(layer, 'layers'):
-
-                for sublayer in layer.layers:
-                    #print(f'{accum} sub is {sublayer} new is {new_combined.layers[accum]}')
-                    if(sublayer.__class__.__name__ != 'InputLayer'):              
-                        new_combined.layers[accum].set_weights(sublayer.get_weights())
-                        accum += 1
-        #             else:
-        #                 accum += 1
-                continue
-            else:
-                #print(layer)
-                if(layer.__class__.__name__ != 'InputLayer'):
-                    new_combined.layers[accum].set_weights(layer.get_weights())
-                    accum +=1 
-
-        print('freezing first half of layers')
-        for i in range(target):
-            new_combined.layers[i].trainable = False
-        
-        print('freezing last half of layers')
-        for i in range(target +  replacement_len, len(new_combined.layers)):
-            new_combined.layers[i].trainable = False
-            
-        new_combined.compile(loss='categorical_crossentropy',
-                    optimizer=opt,
-                    metrics=['accuracy'])
-        del combined
-        gc.collect()
-
-        new_save=tf.keras.callbacks.ModelCheckpoint(model_path + '/' + model_name, 
-                                                    verbose=1, 
-                                                    save_weights_only=False, 
-                                                    save_best_only=True)
-        print('fine tuning combined model')
-        
-        new_combined.save_weights(model_path + '/' + model_name + 'holdout')
-#         new_combined.fit(x=x_train, y=y_train, validation_data=(x_test, y_test), epochs=5, callbacks=[new_save])
-        new_combined.fit_generator(datagen.flow(x_train, y_train,
-                                        batch_size=batch_size),
-                            epochs=args.model_train_epochs,
-                            validation_data=(x_test, y_test),
-                            #workers=5,
-                            callbacks=[new_save])
-        
-        print('loading best weights from fine tune')
-        new_combined.load_weights(model_path + '/' + model_name)
-
-        print('testing fine-tuned combined model')
-        scores = new_combined.evaluate(x_test, y_test, verbose=1)
-        print('Test loss:', scores[0])
-        print('Test accuracy:', scores[1])
-        layer_log['fine_tune_model_loss'] = float(scores[0])
-        layer_log['fine_tune_acc'] = float(scores[1]) 
-        layer_end_time = time.time()
-        layer_log['train_time'] = float(layer_end_time - layer_start_time)
-        log['layer'].append(layer_log)
-        
-        if old_loss < scores[0]:
-            print('loading none finetuned weightss')
-            new_combined.load_weights(model_path + '/' + model_name + 'holdout')
-        
-        model = new_combined
-        del new_combined
-        print('new summary')
-        model.summary()
-        targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
-        layer_counter += 1
+    for t in targets:
+        layer, name, loss = train_replacement(model, t)
+        log['layer'].append([t, loss])
     
     end_time = time.time()
     log['train_time'] = float(end_time - start_time)
