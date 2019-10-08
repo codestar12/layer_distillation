@@ -61,6 +61,7 @@ def normalize_production(x):
     std = 64.15
     return (x-mean)/(std+1e-7)
 
+#
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-ds', 
