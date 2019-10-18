@@ -402,6 +402,7 @@ if __name__ == "__main__":
 
     for t in targets:
         layer, name, loss = train_replacement(model, t)
+        del layer
         log['layer'].append([t, loss])
     
     end_time = time.time()
