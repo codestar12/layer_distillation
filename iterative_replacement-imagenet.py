@@ -5,6 +5,8 @@ from tensorflow.keras.models import load_model
 import tensorflow.keras.layers as layers
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
+BATCH_SIZE = 4
+
 print(tf.config.experimental_list_devices())
 
 
@@ -12,7 +14,6 @@ tf.__version__
 
 tf.executing_eagerly()
 
-batch_size = 32
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
@@ -67,7 +68,7 @@ class LayerBatch(tf.keras.utils.Sequence):
         self.dataset = dataset.__iter__()
         
     def __len__(self):
-        return math.ceil(1281167 / 4 / 10)
+        return math.ceil(1281167 / BATCH_SIZE / 10)
     
     def __getitem__(self, index):
         X, y = self.input_model(next(self.dataset))
@@ -81,7 +82,7 @@ class LayerTest(tf.keras.utils.Sequence):
         self.dataset = dataset.__iter__()
         
     def __len__(self):
-        return math.ceil(50000 / 4 / 16)
+        return math.ceil(50000 / BATCH_SIZE)
     
     def __getitem__(self, index):
         X, y = self.input_model(next(self.dataset))
@@ -97,23 +98,56 @@ from numba import cuda
 
 from tensorflow.keras.applications.vgg16 import preprocess_input
 
-train_gen = keras.preprocessing.image.ImageDataGenerator(preprocessing_function=preprocess_input)
-test_gen = keras.preprocessing.image.ImageDataGenerator(preprocessing_function=preprocess_input)
+# train_gen = keras.preprocessing.image.ImageDataGenerator(preprocessing_function=preprocess_input)
+# test_gen = keras.preprocessing.image.ImageDataGenerator(preprocessing_function=preprocess_input)
 
-train_generator = train_gen.flow_from_directory(
-                '/home/cody/datasets/imagenet/train/',
-                target_size=(224, 224),
-                batch_size=4,
-                class_mode='categorical'
-                )
+# train_generator = train_gen.flow_from_directory(
+#                 '/home/cody/datasets/imagenet/train/',
+#                 target_size=(224, 224),
+#                 batch_size=4,
+#                 class_mode='categorical'
+#                 )
 
-test_generator = test_gen.flow_from_directory(
-                '/home/cody/datasets/imagenet/val/',
-                target_size=(224, 224),
-                batch_size=4,
-                class_mode='categorical'
-                )
+# test_generator = test_gen.flow_from_directory(
+#                 '/home/cody/datasets/imagenet/val/',
+#                 target_size=(224, 224),
+#                 batch_size=4,
+#                 class_mode='categorical'
+#                 )
+import pathlib
+import random
 
+def preprocess_image(image):
+    image = tf.io.decode_png(image, channels=3)
+    image = tf.image.resize(image, [224, 224])
+    
+    return preprocess_input(image)
+
+def load_and_preprocess_image(path):
+    image = tf.io.read_file(path)
+    return preprocess_image(image)
+
+def create_ds(data_path, cache='./image-net.tfcache'):
+    data_root = pathlib.Path(data_path)
+    all_image_paths = list(data_root.glob('*'))
+    all_image_paths = [str(path) for path in all_image_paths]
+    image_count = len(all_image_paths)
+    random.shuffle(all_image_paths)
+    all_image_labels = [0 for _ in all_image_paths]
+    path_ds = tf.data.Dataset.from_tensor_slices(all_image_paths)
+    image_ds = path_ds.map(load_and_preprocess_image, num_parallel_calls=AUTOTUNE)
+    label_ds = tf.data.Dataset.from_tensor_slices(tf.cast(all_image_labels, tf.int64))
+    image_label_ds = tf.data.Dataset.zip((image_ds, label_ds))
+    image_label_ds = image_label_ds.cache(cache)
+    dataset = image_label_ds.shuffle(buffer_size=8000)  
+    dataset = dataset.repeat()
+    dataset = dataset.batch(BATCH_SIZE)
+    dataset = dataset.prefetch(buffer_size=AUTOTUNE)
+
+    return dataset
+
+test_generator = create_ds('/home/cody/datasets/imagenet/val/', cache='./image-net-test.tfcache')
+train_generator = create_ds('/home/cody/datasets/imagenet/train/', cache='./image-net-train.tfcache')
 import gc
 
 opt = keras.optimizers.RMSprop(lr=0.00005, decay=1e-6)
