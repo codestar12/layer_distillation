@@ -4,9 +4,13 @@ import tensorflow as tf
 from tensorflow.keras.models import load_model
 import tensorflow.keras.layers as layers
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-
-BATCH_SIZE = 4
-
+import numpy as np
+BATCH_SIZE = 1
+import pathlib
+# Add before any TF calls
+# Initialize the keras global outside of any tf.functions
+temp = tf.zeros([4, 32, 32, 3])  # Or tf.zeros
+tf.keras.applications.vgg16.preprocess_input(temp)
 print(tf.config.experimental_list_devices())
 
 
@@ -68,7 +72,7 @@ class LayerBatch(tf.keras.utils.Sequence):
         self.dataset = dataset.__iter__()
         
     def __len__(self):
-        return math.ceil(1281167 / BATCH_SIZE / 10)
+        return math.ceil(1281167 // BATCH_SIZE // 10 // 10 // 10)
     
     def __getitem__(self, index):
         X, y = self.input_model(next(self.dataset))
@@ -82,7 +86,7 @@ class LayerTest(tf.keras.utils.Sequence):
         self.dataset = dataset.__iter__()
         
     def __len__(self):
-        return math.ceil(50000 / BATCH_SIZE)
+        return math.ceil(50000 // BATCH_SIZE // 10)
     
     def __getitem__(self, index):
         X, y = self.input_model(next(self.dataset))
@@ -97,9 +101,65 @@ from numba import cuda
 
 
 from tensorflow.keras.applications.vgg16 import preprocess_input
+BATCH_SIZE = 1
+data_dir = pathlib.Path('/home/cody/datasets/imagenet/train/')
 
-# train_gen = keras.preprocessing.image.ImageDataGenerator(preprocessing_function=preprocess_input)
-# test_gen = keras.preprocessing.image.ImageDataGenerator(preprocessing_function=preprocess_input)
+
+import json
+with open('./imagenet_class_index.json') as f:
+    CLASS_INDEX = json.load(f)
+
+
+CLASS_NAMES = np.array([item[0] for key, item in CLASS_INDEX.items()])
+
+def get_label(file_path):
+    parts = tf.strings.split(file_path, '/')
+
+    return tf.dtypes.cast(tf.equal(parts[-2], CLASS_NAMES), tf.int32)
+
+def preprocess_image(image):
+    image = tf.io.decode_png(image, channels=3)
+    image = tf.image.resize(image, [256, 256])
+    image = tf.image.resize_with_crop_or_pad(image, 224, 224)
+    image = preprocess_input(image)
+    return image
+
+def load_and_preprocess_image(path):
+    image = tf.io.read_file(path)
+    return preprocess_image(image)
+
+def process_path(file_path):
+    label = get_label(file_path)
+    image = load_and_preprocess_image(file_path)
+    return image, label
+
+def create_ds(data_path, cache='./image-net.tfcache', train=False):
+    data_root = pathlib.Path(data_path)
+    all_image_paths = list(data_root.glob('*/*'))
+    all_image_paths = [str(path) for path in all_image_paths]
+    image_count = len(all_image_paths)
+    #random.shuffle(all_image_paths)
+    path_ds = tf.data.Dataset.from_tensor_slices(all_image_paths)
+    dataset = path_ds.map(process_path, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    #image_label_ds = image_label_ds.cache(cache)
+#     if train:
+#         #dataset = dataset.cache(cache)
+#         dataset = dataset.shuffle(buffer_size=16000)       
+    
+    dataset = dataset.repeat()
+        
+    dataset = dataset.batch(BATCH_SIZE)
+    dataset = dataset.prefetch(buffer_size=AUTOTUNE)
+
+    return dataset
+
+
+test_generator = create_ds('/home/cody/datasets/imagenet/val/')
+train_generator = create_ds('/home/cody/datasets/imagenet/train/', train=True)
+
+import gc
+
+test_gen = keras.preprocessing.image.ImageDataGenerator(preprocessing_function=preprocess_image)
 
 # train_generator = train_gen.flow_from_directory(
 #                 '/home/cody/datasets/imagenet/train/',
@@ -111,54 +171,20 @@ from tensorflow.keras.applications.vgg16 import preprocess_input
 # test_generator = test_gen.flow_from_directory(
 #                 '/home/cody/datasets/imagenet/val/',
 #                 target_size=(224, 224),
-#                 batch_size=4,
+#                 batch_size=BATCH_SIZE,
 #                 class_mode='categorical'
 #                 )
-import pathlib
-import random
-
-def preprocess_image(image):
-    image = tf.io.decode_png(image, channels=3)
-    image = tf.image.resize(image, [224, 224])
-    
-    return preprocess_input(image)
-
-def load_and_preprocess_image(path):
-    image = tf.io.read_file(path)
-    return preprocess_image(image)
-
-def create_ds(data_path, cache='./image-net.tfcache'):
-    data_root = pathlib.Path(data_path)
-    all_image_paths = list(data_root.glob('*'))
-    all_image_paths = [str(path) for path in all_image_paths]
-    image_count = len(all_image_paths)
-    random.shuffle(all_image_paths)
-    all_image_labels = [0 for _ in all_image_paths]
-    path_ds = tf.data.Dataset.from_tensor_slices(all_image_paths)
-    image_ds = path_ds.map(load_and_preprocess_image, num_parallel_calls=AUTOTUNE)
-    label_ds = tf.data.Dataset.from_tensor_slices(tf.cast(all_image_labels, tf.int64))
-    image_label_ds = tf.data.Dataset.zip((image_ds, label_ds))
-    image_label_ds = image_label_ds.cache(cache)
-    dataset = image_label_ds.shuffle(buffer_size=8000)  
-    dataset = dataset.repeat()
-    dataset = dataset.batch(BATCH_SIZE)
-    dataset = dataset.prefetch(buffer_size=AUTOTUNE)
-
-    return dataset
-
-test_generator = create_ds('/home/cody/datasets/imagenet/val/', cache='./image-net-test.tfcache')
-train_generator = create_ds('/home/cody/datasets/imagenet/train/', cache='./image-net-train.tfcache')
-import gc
-
 opt = keras.optimizers.RMSprop(lr=0.00005, decay=1e-6)
 model.compile(loss='categorical_crossentropy',
           optimizer=opt,
           metrics=['accuracy'])
 
-scores = model.evaluate_generator(test_generator, verbose=1)
-print('Test loss:', scores[0])
-print('Test accuracy:', scores[1])
-   
+# tensorboard_acc = keras.callbacks.TensorBoard(log_dir=f'./logs/train/model_acc/', update_freq='batch')
+# scores = model.evaluate_generator(test_generator, steps=50//BATCH_SIZE, verbose=2, )
+# print('Test loss:', scores[0])
+# print('Test accuracy:', scores[1])
+
+#all_scores = [{'init':scores}]
 while len(targets) > 1:
     
     print(f'targets {targets}')
@@ -176,7 +202,7 @@ while len(targets) > 1:
     
     replacement_len = len(replacement_layers.layers)
     
-    optimizer = tf.keras.optimizers.Adam(learning_rate=.001)
+    optimizer = keras.optimizers.Adam(lr=0.001, decay=1e-6)
 
     loss_object = tf.losses.MeanSquaredError()
     
@@ -190,13 +216,13 @@ while len(targets) > 1:
     layer_train_gen = LayerBatch(get_output, train_generator)
     layer_test_gen = LayerTest(get_output, test_generator)
     
-    tensorboard = keras.callbacks.TensorBoard(log_dir='./logs')
+    tensorboard = keras.callbacks.TensorBoard(log_dir=f'./logs/train/layer_{target}')
 
     print(f'starting fit generator for target layer {target}')
     replacement_layers.fit_generator(generator=layer_train_gen, 
-                                     epochs=10, 
+                                     epochs=1, 
                                      validation_data=layer_test_gen ,
-                                     verbose=1, callbacks=[save, tensorboard])
+                                     verbose=2, callbacks=[save])
     
     print('saving replacement layers to json')
     
@@ -231,7 +257,7 @@ while len(targets) > 1:
     
     print('building bottom of model')
     bottom_half.build(input_shape=new_joint.output.shape)
-    bottom_half.summary()
+    #bottom_half.summary()
     print('combining model')
     combined = tf.keras.Model(inputs=new_joint.input, outputs=bottom_half(new_joint.output))
     
@@ -250,6 +276,9 @@ while len(targets) > 1:
 #     scores = combined.evaluate(x_test, y_test, verbose=1)
 #     print('Test loss:', scores[0])
 #     print('Test accuracy:', scores[1])
+
+
+# maybe clear backend here?
     
     new_combined = tf.keras.Sequential()
     new_layers = []
@@ -305,13 +334,13 @@ while len(targets) > 1:
             elif(layer.__class__.__name__ == 'Flatten'):
                 accum += 1
 
-    print('freezing first half of layers')
-    for i in range(target):
-        new_combined.layers[i].trainable = False
+#     print('freezing first half of layers')
+#     for i in range(target):
+#         new_combined.layers[i].trainable = False
     
-    print('freezing last half of layers')
-    for i in range(target +  replacement_len, len(new_combined.layers)):
-        new_combined.layers[i].trainable = False
+#     print('freezing last half of layers')
+#     for i in range(target +  replacement_len, len(new_combined.layers)):
+#         new_combined.layers[i].trainable = False
         
     new_combined.compile(loss='categorical_crossentropy',
                   optimizer=opt,
@@ -340,20 +369,32 @@ while len(targets) > 1:
     print('loading best weights from fine tune')
     #new_combined.load_weights('./refactor_finetune.h5')
     #new_combined.save('.refactor_finetune.h5')
-    scores = new_combined.evaluate_generator(layer_test_gen.dataset, verbose=1)
-    print('Test loss:', scores[0])
-    print('Test accuracy:', scores[1])
+    
+#     scores = new_combined.evaluate_generator(test_generator, steps=50//BATCH_SIZE, verbose=2)
+#     print('Test loss:', scores[0])
+#     print('Test accuracy:', scores[1])
     model = tf.keras.Model(inputs=new_combined.input, 
                                 outputs=new_combined.output)
-    model.summary()
+    
+    model.compile(loss='categorical_crossentropy',
+              optimizer=opt,
+              metrics=['accuracy'])
+    #all_scores.append({f'layer {target}': scores})
+    #model.summary()
     del new_combined
     gc.collect()
     model.save('./refactor_finetune.h5')
     tf.keras.backend.clear_session()
     model = tf.keras.models.load_model('./refactor_finetune.h5')
     print('new summary')
-    model.summary()
+    #model.summary()
     targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
+    
+    #print(all_scores)
+    
+#print(all_scores)
+    
+
     
     
 
