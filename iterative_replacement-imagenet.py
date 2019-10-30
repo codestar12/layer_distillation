@@ -127,9 +127,9 @@ def create_ds(data_path, cache='./image-net.tfcache', train=False):
     path_ds = tf.data.Dataset.from_tensor_slices(all_image_paths)
     dataset = path_ds.map(process_path, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     #image_label_ds = image_label_ds.cache(cache)
-#     if train:
+    if train:
 #         #dataset = dataset.cache(cache)
-#         dataset = dataset.shuffle(buffer_size=16000)       
+        dataset = dataset.shuffle(buffer_size=16000)       
     
     dataset = dataset.repeat()
         
@@ -202,8 +202,9 @@ with mirrored_strategy.scope():
         print(f'starting fit generator for target layer {target}')
         replacement_layers.fit(x=layer_train_gen, 
                                         epochs=1, 
-                                        validation_data=layer_test_gen ,
-                                        verbose=1, callbacks=[save])
+                                        validation_data=layer_test_gen,
+                                        shuffle=False,
+                                        verbose=1, callbacks=[save, tensorboard])
         
         print('saving replacement layers to json')
         
