@@ -160,7 +160,7 @@ with mirrored_strategy.scope():
             metrics=['accuracy'])
 
 tensorboard_acc = keras.callbacks.TensorBoard(log_dir=f'./logs/train/model_acc/', update_freq='batch')
-scores = model.evaluate(test_generator, steps=50//BATCH_SIZE, verbose=2 )
+scores = model.evaluate(test_generator, steps=50//BATCH_SIZE, verbose=1 )
 print('Test loss:', scores[0])
 print('Test accuracy:', scores[1])
 
@@ -351,9 +351,9 @@ with mirrored_strategy.scope():
         #new_combined.load_weights('./refactor_finetune.h5')
         #new_combined.save('.refactor_finetune.h5')
         
-    #     scores = new_combined.evaluate_generator(test_generator, steps=50//BATCH_SIZE, verbose=2)
-    #     print('Test loss:', scores[0])
-    #     print('Test accuracy:', scores[1])
+        scores = new_combined.evaluate(test_generator, steps=50//BATCH_SIZE, verbose=1)
+        print('Test loss:', scores[0])
+        print('Test accuracy:', scores[1])
         model = tf.keras.Model(inputs=new_combined.input, 
                                     outputs=new_combined.output)
         
