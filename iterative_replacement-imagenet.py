@@ -202,7 +202,7 @@ while len(targets) > 1:
 
     print(f'starting fit generator for target layer {target}')
     replacement_layers.fit(x=layer_train_gen, 
-                                    epochs=2, 
+                                    epochs=20, 
                                     validation_data=layer_test_gen,
                                     shuffle=False,
                                     verbose=1, callbacks=[save, tensorboard])
