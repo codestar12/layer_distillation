@@ -11,7 +11,6 @@ import pathlib
 # Initialize the keras global outside of any tf.functions
 temp = tf.zeros([4, 32, 32, 3])  # Or tf.zeros
 tf.keras.applications.vgg16.preprocess_input(temp)
-print(tf.config.experimental_list_devices())
 mirrored_strategy = tf.distribute.MirroredStrategy()
 BATCH_SIZE = BATCH_SIZE * mirrored_strategy.num_replicas_in_sync
 tf.__version__
@@ -58,7 +57,7 @@ class LayerBatch(tf.keras.utils.Sequence):
         self.dataset = dataset.__iter__()
         
     def __len__(self):
-        return math.ceil(1281167 // BATCH_SIZE // 10 // 10 // 10)
+        return math.ceil(1281167 // BATCH_SIZE // 10 )
     
     def __getitem__(self, index):
         X, y = self.input_model(next(self.dataset))
@@ -72,7 +71,7 @@ class LayerTest(tf.keras.utils.Sequence):
         self.dataset = dataset.__iter__()
         
     def __len__(self):
-        return math.ceil(50000 // BATCH_SIZE // 10 // 10)
+        return math.ceil(50000 // BATCH_SIZE )
     
     def __getitem__(self, index):
         X, y = self.input_model(next(self.dataset))
@@ -160,7 +159,7 @@ with mirrored_strategy.scope():
             metrics=['accuracy'])
 
 tensorboard_acc = keras.callbacks.TensorBoard(log_dir=f'./logs/train/model_acc/', update_freq='batch')
-scores = model.evaluate(test_generator, steps=50//BATCH_SIZE, verbose=1 )
+scores = model.evaluate(test_generator, verbose=1, steps=50000, callbacks=[tensorboard_acc] )
 print('Test loss:', scores[0])
 print('Test accuracy:', scores[1])
 
@@ -199,14 +198,14 @@ while len(targets) > 1:
     layer_train_gen = LayerBatch(get_output, train_generator)
     layer_test_gen = LayerTest(get_output, test_generator)
     
-    #tensorboard = keras.callbacks.TensorBoard(log_dir=f'./logs/train/layer_{target}')
+    tensorboard = keras.callbacks.TensorBoard(log_dir=f'./logs/train/layer_{target}')
 
     print(f'starting fit generator for target layer {target}')
     replacement_layers.fit(x=layer_train_gen, 
-                                    epochs=1, 
+                                    epochs=2, 
                                     validation_data=layer_test_gen,
                                     shuffle=False,
-                                    verbose=1, callbacks=[save])
+                                    verbose=1, callbacks=[save, tensorboard])
     
     print('saving replacement layers to json')
     
@@ -354,7 +353,7 @@ while len(targets) > 1:
     #new_combined.load_weights('./refactor_finetune.h5')
     #new_combined.save('.refactor_finetune.h5')
     
-    scores = new_combined.evaluate(test_generator, steps=50//BATCH_SIZE, verbose=1)
+    scores = new_combined.evaluate(test_generator, steps=50000, verbose=1, callbacks=[tensorboard_acc])
     print('Test loss:', scores[0])
     print('Test accuracy:', scores[1])
 
@@ -365,7 +364,7 @@ while len(targets) > 1:
         model.compile(loss='categorical_crossentropy',
                 optimizer=opt,
                 metrics=['accuracy'])
-    #all_scores.append({f'layer {target}': scores})
+    all_scores.append({f'layer {target}': scores})
     #model.summary()
     del new_combined
     gc.collect()
@@ -376,9 +375,9 @@ while len(targets) > 1:
     #model.summary()
     targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
     
-    #print(all_scores)
+    print(all_scores)
     
-#print(all_scores)
+print(all_scores)
     
 
     
