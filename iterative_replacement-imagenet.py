@@ -5,14 +5,14 @@ from tensorflow.keras.models import load_model
 import tensorflow.keras.layers as layers
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import numpy as np
-BATCH_SIZE = 1
+BATCH_SIZE = 16
 import pathlib
 # Add before any TF calls
 # Initialize the keras global outside of any tf.functions
 temp = tf.zeros([4, 32, 32, 3])  # Or tf.zeros
 tf.keras.applications.vgg16.preprocess_input(temp)
 print(tf.config.experimental_list_devices())
-
+mirrored_strategy = tf.distribute.MirroredStrategy()
 
 tf.__version__
 
@@ -86,7 +86,7 @@ class LayerTest(tf.keras.utils.Sequence):
         self.dataset = dataset.__iter__()
         
     def __len__(self):
-        return math.ceil(50000 // BATCH_SIZE // 10)
+        return math.ceil(50000 // BATCH_SIZE // 10 // 10)
     
     def __getitem__(self, index):
         X, y = self.input_model(next(self.dataset))
@@ -97,11 +97,10 @@ import tensorflow as tf
 import tensorflow.keras.layers as layers
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.models import load_model
-from numba import cuda
+#from numba import cuda
 
 
 from tensorflow.keras.applications.vgg16 import preprocess_input
-BATCH_SIZE = 1
 data_dir = pathlib.Path('/home/cody/datasets/imagenet/train/')
 
 
@@ -222,7 +221,7 @@ while len(targets) > 1:
     replacement_layers.fit_generator(generator=layer_train_gen, 
                                      epochs=1, 
                                      validation_data=layer_test_gen ,
-                                     verbose=2, callbacks=[save])
+                                     verbose=1, callbacks=[save])
     
     print('saving replacement layers to json')
     

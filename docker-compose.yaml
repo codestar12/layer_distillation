@@ -1,0 +1,8 @@
+version: '3'
+
+services:
+        tensorflow:
+                build: .
+                volumes:
+                        - ./:/home/cody/layer_distillation
+                        - /home/cody/datasets:/home/cody/datasets  
