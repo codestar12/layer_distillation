@@ -200,9 +200,9 @@ with mirrored_strategy.scope():
         tensorboard = keras.callbacks.TensorBoard(log_dir=f'./logs/train/layer_{target}')
 
         print(f'starting fit generator for target layer {target}')
-        replacement_layers.fit_generator(generator=layer_train_gen, 
+        replacement_layers.fit(x=layer_train_gen, 
                                         epochs=1, 
-                                        validation_data=layer_test_gen ,
+                                        y=layer_test_gen ,
                                         verbose=1, callbacks=[save])
         
         print('saving replacement layers to json')
