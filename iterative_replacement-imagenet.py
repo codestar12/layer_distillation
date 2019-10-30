@@ -5,7 +5,7 @@ from tensorflow.keras.models import load_model
 import tensorflow.keras.layers as layers
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import numpy as np
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 import pathlib
 # Add before any TF calls
 # Initialize the keras global outside of any tf.functions
