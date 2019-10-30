@@ -159,12 +159,12 @@ with mirrored_strategy.scope():
             optimizer=opt,
             metrics=['accuracy'])
 
-# tensorboard_acc = keras.callbacks.TensorBoard(log_dir=f'./logs/train/model_acc/', update_freq='batch')
-# scores = model.evaluate_generator(test_generator, steps=50//BATCH_SIZE, verbose=2, )
-# print('Test loss:', scores[0])
-# print('Test accuracy:', scores[1])
+tensorboard_acc = keras.callbacks.TensorBoard(log_dir=f'./logs/train/model_acc/', update_freq='batch')
+scores = model.evaluate(test_generator, steps=50//BATCH_SIZE, verbose=2 )
+print('Test loss:', scores[0])
+print('Test accuracy:', scores[1])
 
-#all_scores = [{'init':scores}]
+all_scores = [{'init':scores}]
 with mirrored_strategy.scope():
     while len(targets) > 1:
         
@@ -219,7 +219,7 @@ with mirrored_strategy.scope():
         print('loading replacement layers weights')
         replacement_layers.load_weights('replacement_layer.h5')
         replacement_layers.compile(loss=loss_object, optimizer=optimizer)
-        replacement_layers.evaluate_generator(layer_test_gen)
+        replacement_layers.evaluate(layer_test_gen)
         # build top half of model
         print('building top half of model')
         get_output = tf.keras.Model(inputs=model.input, outputs=[model.layers[target - 1].output])
