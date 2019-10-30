@@ -5,7 +5,7 @@ from tensorflow.keras.models import load_model
 import tensorflow.keras.layers as layers
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import numpy as np
-BATCH_SIZE = 16
+BATCH_SIZE = 24
 import pathlib
 # Add before any TF calls
 # Initialize the keras global outside of any tf.functions
@@ -141,7 +141,6 @@ def create_ds(data_path, cache='./image-net.tfcache', train=False):
 
 test_generator = create_ds('/home/cody/datasets/imagenet/val/')
 train_generator = create_ds('/home/cody/datasets/imagenet/train/', train=True)
-train_generator = mirrored_strategy.experimental_distribute_dataset(train_generator)
 
 import gc
 
