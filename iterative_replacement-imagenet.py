@@ -5,7 +5,7 @@ from tensorflow.keras.models import load_model
 import tensorflow.keras.layers as layers
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import numpy as np
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 import pathlib
 # Add before any TF calls
 # Initialize the keras global outside of any tf.functions
@@ -129,7 +129,7 @@ def create_ds(data_path, cache='./image-net.tfcache', train=False):
     #image_label_ds = image_label_ds.cache(cache)
     if train:
 #         #dataset = dataset.cache(cache)
-        dataset = dataset.shuffle(buffer_size=16000)       
+        dataset = dataset.shuffle(buffer_size=100)       
     
     dataset = dataset.repeat()
         
