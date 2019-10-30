@@ -13,7 +13,7 @@ temp = tf.zeros([4, 32, 32, 3])  # Or tf.zeros
 tf.keras.applications.vgg16.preprocess_input(temp)
 print(tf.config.experimental_list_devices())
 mirrored_strategy = tf.distribute.MirroredStrategy()
-
+BATCH_SIZE = mirrored_strategy.num_replicas_in_sync
 tf.__version__
 
 tf.executing_eagerly()
