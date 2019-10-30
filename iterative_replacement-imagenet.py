@@ -263,38 +263,38 @@ while len(targets) > 1:
 
 
 # maybe clear backend here?
-    
-    new_combined = tf.keras.Sequential()
-    new_layers = []
-    new_combined.add(tf.keras.layers.Input(shape=(224,224,3)))
-    accum = 0
-    print('refactoring model')
-    for layer in combined.layers:
-        #print(layer.__class__.__name__)
-        if hasattr(layer, 'layers'):
-            
-            for sublayer in layer.layers:
-                #print(sublayer.__class__)
-                if(sublayer.__class__.__name__ != 'InputLayer'): 
-                    new_layers.append((sublayer.__class__.__name__, sublayer.get_config(), accum))
-
-                accum += 1
-        elif layer.__class__.__name__ != 'InputLayer':          
-            new_layers.append((layer.__class__.__name__, layer.get_config(), accum))
+    with mirrored_strategy.scope():
+        new_combined = tf.keras.Sequential()
+        new_layers = []
+        new_combined.add(tf.keras.layers.Input(shape=(224,224,3)))
+        accum = 0
+        print('refactoring model')
+        for layer in combined.layers:
+            #print(layer.__class__.__name__)
+            if hasattr(layer, 'layers'):
                 
-            accum += 1 
+                for sublayer in layer.layers:
+                    #print(sublayer.__class__)
+                    if(sublayer.__class__.__name__ != 'InputLayer'): 
+                        new_layers.append((sublayer.__class__.__name__, sublayer.get_config(), accum))
+
+                    accum += 1
+            elif layer.__class__.__name__ != 'InputLayer':          
+                new_layers.append((layer.__class__.__name__, layer.get_config(), accum))
+                    
+                accum += 1 
 
 
 
 
-    for i, layer in enumerate(new_layers):
-        new_combined.add(keras.layers.deserialize(
-                                {'class_name': layer[0], 
-                                'config': layer[1]}))
+        for i, layer in enumerate(new_layers):
+            new_combined.add(keras.layers.deserialize(
+                                    {'class_name': layer[0], 
+                                    'config': layer[1]}))
 
-    new_combined.compile(loss='categorical_crossentropy',
-            optimizer=opt,
-            metrics=['accuracy'])
+        new_combined.compile(loss='categorical_crossentropy',
+                optimizer=opt,
+                metrics=['accuracy'])
 
     accum = 0
     for i, layer in enumerate(combined.layers):
