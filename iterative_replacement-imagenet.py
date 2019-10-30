@@ -141,6 +141,7 @@ def create_ds(data_path, cache='./image-net.tfcache', train=False):
 
 test_generator = create_ds('/home/cody/datasets/imagenet/val/')
 train_generator = create_ds('/home/cody/datasets/imagenet/train/', train=True)
+train_generator = mirrored_strategy.experimental_distribute_dataset(train_generator)
 
 import gc
 
