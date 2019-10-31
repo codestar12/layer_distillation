@@ -8,6 +8,8 @@ import numpy as np
 BATCH_SIZE = 1
 VALIDATION_SIZE = 50000
 import pathlib
+import time
+import json
 # Add before any TF calls
 # Initialize the keras global outside of any tf.functions
 temp = tf.zeros([4, 32, 32, 3])  # Or tf.zeros
@@ -160,12 +162,14 @@ with mirrored_strategy.scope():
             metrics=['accuracy'])
 
 tensorboard_acc = keras.callbacks.TensorBoard(log_dir=f'./logs/train/model_acc/', update_freq='batch')
-scores = model.evaluate(test_generator, verbose=1, steps=VALIDATION_SIZE, callbacks=[tensorboard_acc] )
+scores = model.evaluate(test_generator, verbose=2, steps=VALIDATION_SIZE, callbacks=[tensorboard_acc] )
 print('Test loss:', scores[0])
 print('Test accuracy:', scores[1])
 
 all_scores = [{'init':scores}]
 
+
+start_time = time.time()
 while len(targets) > 1:
     
     print(f'targets {targets}')
@@ -207,7 +211,7 @@ while len(targets) > 1:
                                     validation_data=layer_test_gen,
                                     shuffle=False,
                                     validation_steps=VALIDATION_SIZE//5,
-                                    verbose=1, callbacks=[save, tensorboard])
+                                    verbose=2, callbacks=[save, tensorboard])
     
     print('saving replacement layers to json')
     
@@ -334,7 +338,7 @@ while len(targets) > 1:
     gc.collect()
 
     new_save=tf.keras.callbacks.ModelCheckpoint('./refactor_finetune.h5', 
-                                                verbose=1, 
+                                                verbose=2, 
                                                 save_weights_only=False, 
                                                 save_best_only=True)
     print('fine tuning combined model')
@@ -377,6 +381,8 @@ while len(targets) > 1:
     #model.summary()
     targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
     
+
+    print(f"end time {time.time() - start_time}")
     print(all_scores)
     
 print(all_scores)
