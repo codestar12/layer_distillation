@@ -162,7 +162,7 @@ with mirrored_strategy.scope():
             metrics=['accuracy'])
 
 tensorboard_acc = keras.callbacks.TensorBoard(log_dir=f'./logs/train/model_acc/', update_freq='batch')
-scores = model.evaluate(test_generator, verbose=2, steps=VALIDATION_SIZE, callbacks=[tensorboard_acc] )
+scores = model.evaluate(test_generator, verbose=1, steps=VALIDATION_SIZE, callbacks=[tensorboard_acc] )
 print('Test loss:', scores[0])
 print('Test accuracy:', scores[1])
 
@@ -211,7 +211,7 @@ while len(targets) > 1:
                                     validation_data=layer_test_gen,
                                     shuffle=False,
                                     validation_steps=VALIDATION_SIZE//5,
-                                    verbose=2, callbacks=[save, tensorboard])
+                                    verbose=1, callbacks=[save, tensorboard])
     
     print('saving replacement layers to json')
     
