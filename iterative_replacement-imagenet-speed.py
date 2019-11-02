@@ -7,6 +7,7 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import numpy as np
 BATCH_SIZE = 1
 VALIDATION_SIZE = 50000
+TRAIN_SIZE = 1281167
 import pathlib
 import time
 import json
@@ -60,7 +61,7 @@ class LayerBatch(tf.keras.utils.Sequence):
         self.dataset = dataset.__iter__()
         
     def __len__(self):
-        return math.ceil(1281167 // BATCH_SIZE // 10)
+        return math.ceil(TRAIN_SIZE // BATCH_SIZE )
     
     def __getitem__(self, index):
         X, y = self.input_model(next(self.dataset))
@@ -151,7 +152,7 @@ test_gen = keras.preprocessing.image.ImageDataGenerator(preprocessing_function=p
 with mirrored_strategy.scope():
     model = tf.keras.applications.VGG16(weights='imagenet')
 
-    model.save('./baseline_vgg_imagenet.h5')
+    model.save('./model.h5')
 
     targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
 
@@ -161,12 +162,12 @@ with mirrored_strategy.scope():
             optimizer=opt,
             metrics=['accuracy'])
 
-tensorboard_acc = keras.callbacks.TensorBoard(log_dir=f'./logs/train/model_acc/', update_freq='batch')
-scores = model.evaluate(test_generator, verbose=2, steps=VALIDATION_SIZE, callbacks=[tensorboard_acc] )
-print('Test loss:', scores[0])
-print('Test accuracy:', scores[1])
+#tensorboard_acc = keras.callbacks.TensorBoard(log_dir=f'./logs/train/model_acc/', update_freq='batch')
+# scores = model.evaluate(test_generator, verbose=2, steps=VALIDATION_SIZE, callbacks=[tensorboard_acc] )
+# print('Test loss:', scores[0])
+# print('Test accuracy:', scores[1])
 
-all_scores = [{'init':scores}]
+# all_scores = [{'init':scores}]
 
 
 start_time = time.time()
@@ -177,10 +178,21 @@ while len(targets) > 1:
     target = targets[1]
     
     print(f'making output for target layer {target}')
+    with mirrored_strategy.scope():
+        get_output = tf.keras.Model(inputs=model.input, 
+                                    outputs=[model.layers[target - 1].output,
+                                            model.layers[target].output])
+        optimizer = keras.optimizers.Adam(lr=0.001, decay=1e-6)
+
+        loss_object = tf.losses.MeanSquaredError()
+        
+        #get_output.compile(loss=loss_object, optimizer=optimizer)
+
+    get_output.save('./output.h5')
     
-    get_output = tf.keras.Model(inputs=model.input, 
-                                outputs=[model.layers[target - 1].output,
-                                        model.layers[target].output])
+    tf.keras.backend.clear_session()
+
+    get_output = tf.keras.models.load_model('./output.h5')
     
     print(f'making replacement layers for target layer {target}')
     
@@ -207,11 +219,12 @@ while len(targets) > 1:
 
     print(f'starting fit generator for target layer {target}')
     replacement_layers.fit(x=layer_train_gen, 
-                                    epochs=18, 
+                                    epochs=1, 
+                                    steps_per_epoch=TRAIN_SIZE // BATCH_SIZE // 2000,
                                     validation_data=layer_test_gen,
                                     shuffle=False,
-                                    validation_steps=VALIDATION_SIZE//10,
-                                    verbose=1, callbacks=[save, tensorboard])
+                                    validation_steps=VALIDATION_SIZE// BATCH_SIZE // 2000,
+                                    verbose=1, callbacks=[save])
     
     print('saving replacement layers to json')
     
@@ -221,13 +234,17 @@ while len(targets) > 1:
         
     del replacement_layers
     
+    tf.keras.backend.clear_session()
+
     with open('replacement_layer.json', 'r') as json_file:
         replacement_layers = tf.keras.models.model_from_json(json_file.read())
 
     print('loading replacement layers weights')
     replacement_layers.load_weights('replacement_layer.h5')
     replacement_layers.compile(loss=loss_object, optimizer=optimizer)
-    replacement_layers.evaluate(layer_test_gen)
+    #replacement_layers.evaluate(layer_test_gen)
+
+    model = tf.keras.models.load_model('./model.h5')
     # build top half of model
     print('building top half of model')
     get_output = tf.keras.Model(inputs=model.input, outputs=[model.layers[target - 1].output])
@@ -337,7 +354,7 @@ while len(targets) > 1:
     del combined
     gc.collect()
 
-    new_save=tf.keras.callbacks.ModelCheckpoint('./refactor_finetune.h5', 
+    new_save=tf.keras.callbacks.ModelCheckpoint('./model.h5', 
                                                 verbose=2, 
                                                 save_weights_only=False, 
                                                 save_best_only=True)
@@ -359,9 +376,9 @@ while len(targets) > 1:
     #new_combined.load_weights('./refactor_finetune.h5')
     #new_combined.save('.refactor_finetune.h5')
     
-    scores = new_combined.evaluate(test_generator, steps=VALIDATION_SIZE, verbose=1, callbacks=[tensorboard_acc])
-    print('Test loss:', scores[0])
-    print('Test accuracy:', scores[1])
+#     scores = new_combined.evaluate(test_generator, steps=VALIDATION_SIZE, verbose=1, callbacks=[tensorboard_acc])
+#     print('Test loss:', scores[0])
+#     print('Test accuracy:', scores[1])
 
     with mirrored_strategy.scope():
         model = tf.keras.Model(inputs=new_combined.input, 
@@ -370,22 +387,22 @@ while len(targets) > 1:
         model.compile(loss='categorical_crossentropy',
                 optimizer=opt,
                 metrics=['accuracy'])
-    all_scores.append({f'layer {target}': scores})
+    #all_scores.append({f'layer {target}': scores})
     #model.summary()
     del new_combined
     gc.collect()
-    model.save('./refactor_finetune.h5')
+    model.save('./model.h5')
     tf.keras.backend.clear_session()
-    model = tf.keras.models.load_model('./refactor_finetune.h5')
+    model = tf.keras.models.load_model('./model.h5')
     print('new summary')
     #model.summary()
     targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
     
 
     print(f"end time {time.time() - start_time}")
-    print(all_scores)
+   # print(all_scores)
     
-print(all_scores)
+#print(all_scores)
     
 
     
