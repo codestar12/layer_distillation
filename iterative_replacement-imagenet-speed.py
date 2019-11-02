@@ -163,11 +163,11 @@ model.compile(loss='categorical_crossentropy',
         metrics=['accuracy'])
 
 #tensorboard_acc = keras.callbacks.TensorBoard(log_dir=f'./logs/train/model_acc/', update_freq='batch')
-scores = model.evaluate(test_generator, verbose=2, steps=VALIDATION_SIZE, callbacks=[tensorboard_acc] )
+scores = model.evaluate(test_generator, verbose=1, steps=VALIDATION_SIZE//BATCH_SIZE // 400, callbacks=[] )
 print('Test loss:', scores[0])
 print('Test accuracy:', scores[1])
 
-all_scores = [{'init':scores}]
+all_scores = [{'init':[float(score) for score in scores]}]
 
 
 start_time = time.time()
@@ -219,11 +219,11 @@ while len(targets) > 1:
 
     print(f'starting fit generator for target layer {target}')
     replacement_layers.fit(x=layer_train_gen, 
-                                    epochs=18, 
-                                    steps_per_epoch=TRAIN_SIZE // BATCH_SIZE // 10,
+                                    epochs=1, 
+                                    steps_per_epoch=TRAIN_SIZE // BATCH_SIZE // 10 // 400,
                                     validation_data=layer_test_gen,
                                     shuffle=False,
-                                    validation_steps=VALIDATION_SIZE// BATCH_SIZE // 10,
+                                    validation_steps=VALIDATION_SIZE// BATCH_SIZE // 10 // 400,
                                     verbose=1, callbacks=[save])
     
     print('saving replacement layers to json')
@@ -278,10 +278,10 @@ while len(targets) > 1:
     del bottom_half, new_joint, replacement_layers, model
     gc.collect()
     
-    print('testing combined model')
-    scores = combined.evaluate(x_test, y_test, verbose=1)
-    print('Test loss:', scores[0])
-    print('Test accuracy:', scores[1])
+#     print('testing combined model')
+#     scores = combined.evaluate(x_test, y_test, verbose=1)
+#     print('Test loss:', scores[0])
+#     print('Test accuracy:', scores[1])
 
 
 # maybe clear backend here?
@@ -376,7 +376,7 @@ while len(targets) > 1:
     #new_combined.load_weights('./refactor_finetune.h5')
     #new_combined.save('.refactor_finetune.h5')
     
-    scores = new_combined.evaluate(test_generator, steps=VALIDATION_SIZE, verbose=1, callbacks=[tensorboard_acc])
+    scores = new_combined.evaluate(test_generator, steps=VALIDATION_SIZE//BATCH_SIZE // 400, verbose=1, callbacks=[])
     print('Test loss:', scores[0])
     print('Test accuracy:', scores[1])
 
@@ -387,7 +387,8 @@ while len(targets) > 1:
     model.compile(loss='categorical_crossentropy',
             optimizer=opt,
             metrics=['accuracy'])
-    all_scores.append({f'layer {target}': scores})
+    t = time.time() - start_time
+    all_scores.append({f'layer {target}': [float(score) for score in scores], f'time': float(t)})
     #model.summary()
     del new_combined
     gc.collect()
@@ -399,12 +400,13 @@ while len(targets) > 1:
     targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
     
 
-    print(f"end time {time.time() - start_time}")
+    print(f"end time {t}")
     print(all_scores)
     
 print(all_scores)
 print(f" final time {time.time() - start_time}")    
 
-    
-    
+
+with open('./train_log.json', 'w') as f:
+    json.dump(all_scores, f)
 
