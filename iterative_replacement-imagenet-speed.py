@@ -5,8 +5,9 @@ from tensorflow.keras.models import load_model
 import tensorflow.keras.layers as layers
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import numpy as np
-BATCH_SIZE = 8
+BATCH_SIZE = 1
 VALIDATION_SIZE = 50000
+TRAIN_SIZE = 1281167
 import pathlib
 import time
 import json
@@ -60,7 +61,7 @@ class LayerBatch(tf.keras.utils.Sequence):
         self.dataset = dataset.__iter__()
         
     def __len__(self):
-        return math.ceil(1281167 // BATCH_SIZE // 5)
+        return math.ceil(TRAIN_SIZE // BATCH_SIZE )
     
     def __getitem__(self, index):
         X, y = self.input_model(next(self.dataset))
@@ -161,12 +162,12 @@ with mirrored_strategy.scope():
             optimizer=opt,
             metrics=['accuracy'])
 
-tensorboard_acc = keras.callbacks.TensorBoard(log_dir=f'./logs/train/model_acc/', update_freq='batch')
-scores = model.evaluate(test_generator, verbose=2, steps=VALIDATION_SIZE, callbacks=[tensorboard_acc] )
-print('Test loss:', scores[0])
-print('Test accuracy:', scores[1])
+#tensorboard_acc = keras.callbacks.TensorBoard(log_dir=f'./logs/train/model_acc/', update_freq='batch')
+# scores = model.evaluate(test_generator, verbose=2, steps=VALIDATION_SIZE, callbacks=[tensorboard_acc] )
+# print('Test loss:', scores[0])
+# print('Test accuracy:', scores[1])
 
-all_scores = [{'init':scores}]
+# all_scores = [{'init':scores}]
 
 
 start_time = time.time()
@@ -185,7 +186,7 @@ while len(targets) > 1:
 
         loss_object = tf.losses.MeanSquaredError()
         
-        get_output.compile(loss=loss_object, optimizer=optimizer)
+        #get_output.compile(loss=loss_object, optimizer=optimizer)
 
     get_output.save('./output.h5')
     
@@ -218,11 +219,12 @@ while len(targets) > 1:
 
     print(f'starting fit generator for target layer {target}')
     replacement_layers.fit(x=layer_train_gen, 
-                                    epochs=7, 
+                                    epochs=1, 
+                                    steps_per_epoch=TRAIN_SIZE // BATCH_SIZE // 2000,
                                     validation_data=layer_test_gen,
                                     shuffle=False,
-                                    validation_steps=VALIDATION_SIZE//5,
-                                    verbose=2, callbacks=[save, tensorboard])
+                                    validation_steps=VALIDATION_SIZE// BATCH_SIZE // 2000,
+                                    verbose=1, callbacks=[save])
     
     print('saving replacement layers to json')
     
@@ -240,7 +242,7 @@ while len(targets) > 1:
     print('loading replacement layers weights')
     replacement_layers.load_weights('replacement_layer.h5')
     replacement_layers.compile(loss=loss_object, optimizer=optimizer)
-    replacement_layers.evaluate(layer_test_gen)
+    #replacement_layers.evaluate(layer_test_gen)
 
     model = tf.keras.models.load_model('./model.h5')
     # build top half of model
@@ -374,9 +376,9 @@ while len(targets) > 1:
     #new_combined.load_weights('./refactor_finetune.h5')
     #new_combined.save('.refactor_finetune.h5')
     
-    scores = new_combined.evaluate(test_generator, steps=VALIDATION_SIZE, verbose=1, callbacks=[tensorboard_acc])
-    print('Test loss:', scores[0])
-    print('Test accuracy:', scores[1])
+#     scores = new_combined.evaluate(test_generator, steps=VALIDATION_SIZE, verbose=1, callbacks=[tensorboard_acc])
+#     print('Test loss:', scores[0])
+#     print('Test accuracy:', scores[1])
 
     with mirrored_strategy.scope():
         model = tf.keras.Model(inputs=new_combined.input, 
@@ -385,7 +387,7 @@ while len(targets) > 1:
         model.compile(loss='categorical_crossentropy',
                 optimizer=opt,
                 metrics=['accuracy'])
-    all_scores.append({f'layer {target}': scores})
+    #all_scores.append({f'layer {target}': scores})
     #model.summary()
     del new_combined
     gc.collect()
@@ -398,9 +400,9 @@ while len(targets) > 1:
     
 
     print(f"end time {time.time() - start_time}")
-    print(all_scores)
+   # print(all_scores)
     
-print(all_scores)
+#print(all_scores)
     
 
     
