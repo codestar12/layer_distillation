@@ -5,7 +5,7 @@ from tensorflow.keras.models import load_model
 import tensorflow.keras.layers as layers
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import numpy as np
-BATCH_SIZE = 1
+BATCH_SIZE = 8
 VALIDATION_SIZE = 50000
 TRAIN_SIZE = 1281167
 import pathlib
@@ -15,8 +15,8 @@ import json
 # Initialize the keras global outside of any tf.functions
 temp = tf.zeros([4, 32, 32, 3])  # Or tf.zeros
 tf.keras.applications.vgg16.preprocess_input(temp)
-mirrored_strategy = tf.distribute.MirroredStrategy()
-BATCH_SIZE = BATCH_SIZE * mirrored_strategy.num_replicas_in_sync
+#mirrored_strategy = tf.distribute.MirroredStrategy()
+BATCH_SIZE = BATCH_SIZE #* mirrored_strategy.num_replicas_in_sync
 tf.__version__
 
 tf.executing_eagerly()
@@ -149,25 +149,25 @@ import gc
 
 test_gen = keras.preprocessing.image.ImageDataGenerator(preprocessing_function=preprocess_image)
 
-with mirrored_strategy.scope():
-    model = tf.keras.applications.VGG16(weights='imagenet')
+#with mirrored_strategy.scope():
+model = tf.keras.applications.VGG16(weights='imagenet')
 
-    model.save('./model.h5')
+model.save('./model.h5')
 
-    targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
+targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
 
-    targets
-    opt = keras.optimizers.RMSprop(lr=0.00005, decay=1e-6)
-    model.compile(loss='categorical_crossentropy',
-            optimizer=opt,
-            metrics=['accuracy'])
+targets
+opt = keras.optimizers.RMSprop(lr=0.00005, decay=1e-6)
+model.compile(loss='categorical_crossentropy',
+        optimizer=opt,
+        metrics=['accuracy'])
 
 #tensorboard_acc = keras.callbacks.TensorBoard(log_dir=f'./logs/train/model_acc/', update_freq='batch')
-# scores = model.evaluate(test_generator, verbose=2, steps=VALIDATION_SIZE, callbacks=[tensorboard_acc] )
-# print('Test loss:', scores[0])
-# print('Test accuracy:', scores[1])
+scores = model.evaluate(test_generator, verbose=1, steps=VALIDATION_SIZE//BATCH_SIZE // 400, callbacks=[] )
+print('Test loss:', scores[0])
+print('Test accuracy:', scores[1])
 
-# all_scores = [{'init':scores}]
+all_scores = [{'init':[float(score) for score in scores]}]
 
 
 start_time = time.time()
@@ -178,13 +178,13 @@ while len(targets) > 1:
     target = targets[1]
     
     print(f'making output for target layer {target}')
-    with mirrored_strategy.scope():
-        get_output = tf.keras.Model(inputs=model.input, 
-                                    outputs=[model.layers[target - 1].output,
-                                            model.layers[target].output])
-        optimizer = keras.optimizers.Adam(lr=0.001, decay=1e-6)
+    #with mirrored_strategy.scope():
+    get_output = tf.keras.Model(inputs=model.input, 
+                                outputs=[model.layers[target - 1].output,
+                                        model.layers[target].output])
+    optimizer = keras.optimizers.Adam(lr=0.001, decay=1e-6)
 
-        loss_object = tf.losses.MeanSquaredError()
+    loss_object = tf.losses.MeanSquaredError()
         
         #get_output.compile(loss=loss_object, optimizer=optimizer)
 
@@ -196,16 +196,16 @@ while len(targets) > 1:
     
     print(f'making replacement layers for target layer {target}')
     
-    with mirrored_strategy.scope():
-        replacement_layers = build_replacement(get_output)
-        
-        replacement_len = len(replacement_layers.layers)
-        
-        optimizer = keras.optimizers.Adam(lr=0.001, decay=1e-6)
+    #with mirrored_strategy.scope():
+    replacement_layers = build_replacement(get_output)
 
-        loss_object = tf.losses.MeanSquaredError()
-        
-        replacement_layers.compile(loss=loss_object, optimizer=optimizer)
+    replacement_len = len(replacement_layers.layers)
+
+    optimizer = keras.optimizers.Adam(lr=0.001, decay=1e-6)
+
+    loss_object = tf.losses.MeanSquaredError()
+
+    replacement_layers.compile(loss=loss_object, optimizer=optimizer)
     
     save = tf.keras.callbacks.ModelCheckpoint('./replacement_layer.h5', 
                                             verbose=0, 
@@ -220,10 +220,10 @@ while len(targets) > 1:
     print(f'starting fit generator for target layer {target}')
     replacement_layers.fit(x=layer_train_gen, 
                                     epochs=1, 
-                                    steps_per_epoch=TRAIN_SIZE // BATCH_SIZE // 2000,
+                                    steps_per_epoch=TRAIN_SIZE // BATCH_SIZE // 10 // 400,
                                     validation_data=layer_test_gen,
                                     shuffle=False,
-                                    validation_steps=VALIDATION_SIZE// BATCH_SIZE // 2000,
+                                    validation_steps=VALIDATION_SIZE// BATCH_SIZE // 10 // 400,
                                     verbose=1, callbacks=[save])
     
     print('saving replacement layers to json')
@@ -285,38 +285,38 @@ while len(targets) > 1:
 
 
 # maybe clear backend here?
-    with mirrored_strategy.scope():
-        new_combined = tf.keras.Sequential()
-        new_layers = []
-        new_combined.add(tf.keras.layers.Input(shape=(224,224,3)))
-        accum = 0
-        print('refactoring model')
-        for layer in combined.layers:
-            #print(layer.__class__.__name__)
-            if hasattr(layer, 'layers'):
-                
-                for sublayer in layer.layers:
-                    #print(sublayer.__class__)
-                    if(sublayer.__class__.__name__ != 'InputLayer'): 
-                        new_layers.append((sublayer.__class__.__name__, sublayer.get_config(), accum))
+    #with mirrored_strategy.scope():
+    new_combined = tf.keras.Sequential()
+    new_layers = []
+    new_combined.add(tf.keras.layers.Input(shape=(224,224,3)))
+    accum = 0
+    print('refactoring model')
+    for layer in combined.layers:
+        #print(layer.__class__.__name__)
+        if hasattr(layer, 'layers'):
 
-                    accum += 1
-            elif layer.__class__.__name__ != 'InputLayer':          
-                new_layers.append((layer.__class__.__name__, layer.get_config(), accum))
-                    
-                accum += 1 
+            for sublayer in layer.layers:
+                #print(sublayer.__class__)
+                if(sublayer.__class__.__name__ != 'InputLayer'): 
+                    new_layers.append((sublayer.__class__.__name__, sublayer.get_config(), accum))
 
+                accum += 1
+        elif layer.__class__.__name__ != 'InputLayer':          
+            new_layers.append((layer.__class__.__name__, layer.get_config(), accum))
 
+            accum += 1 
 
 
-        for i, layer in enumerate(new_layers):
-            new_combined.add(keras.layers.deserialize(
-                                    {'class_name': layer[0], 
-                                    'config': layer[1]}))
 
-        new_combined.compile(loss='categorical_crossentropy',
-                optimizer=opt,
-                metrics=['accuracy'])
+
+    for i, layer in enumerate(new_layers):
+        new_combined.add(keras.layers.deserialize(
+                                {'class_name': layer[0], 
+                                'config': layer[1]}))
+
+    new_combined.compile(loss='categorical_crossentropy',
+            optimizer=opt,
+            metrics=['accuracy'])
 
     accum = 0
     for i, layer in enumerate(combined.layers):
@@ -376,18 +376,19 @@ while len(targets) > 1:
     #new_combined.load_weights('./refactor_finetune.h5')
     #new_combined.save('.refactor_finetune.h5')
     
-#     scores = new_combined.evaluate(test_generator, steps=VALIDATION_SIZE, verbose=1, callbacks=[tensorboard_acc])
-#     print('Test loss:', scores[0])
-#     print('Test accuracy:', scores[1])
+    scores = new_combined.evaluate(test_generator, steps=VALIDATION_SIZE//BATCH_SIZE // 400, verbose=1, callbacks=[])
+    print('Test loss:', scores[0])
+    print('Test accuracy:', scores[1])
 
-    with mirrored_strategy.scope():
-        model = tf.keras.Model(inputs=new_combined.input, 
-                                    outputs=new_combined.output)
-        
-        model.compile(loss='categorical_crossentropy',
-                optimizer=opt,
-                metrics=['accuracy'])
-    #all_scores.append({f'layer {target}': scores})
+    #with mirrored_strategy.scope():
+    model = tf.keras.Model(inputs=new_combined.input, 
+                                outputs=new_combined.output)
+
+    model.compile(loss='categorical_crossentropy',
+            optimizer=opt,
+            metrics=['accuracy'])
+    t = time.time() - start_time
+    all_scores.append({f'layer {target}': [float(score) for score in scores], f'time': float(t)})
     #model.summary()
     del new_combined
     gc.collect()
@@ -399,12 +400,13 @@ while len(targets) > 1:
     targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
     
 
-    print(f"end time {time.time() - start_time}")
-   # print(all_scores)
+    print(f"end time {t}")
+    print(all_scores)
     
-#print(all_scores)
-    
+print(all_scores)
+print(f" final time {time.time() - start_time}")    
 
-    
-    
+
+with open('./train_log.json', 'w') as f:
+    json.dump(all_scores, f)
 
