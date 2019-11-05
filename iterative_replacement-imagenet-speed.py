@@ -8,6 +8,8 @@ import numpy as np
 BATCH_SIZE = 8
 VALIDATION_SIZE = 50000
 TRAIN_SIZE = 1281167
+EPOCHS=3
+TEST_VALUE = 1 # value to speed up training if doing testing set to 1 for actual run
 import pathlib
 import time
 import json
@@ -130,9 +132,9 @@ def create_ds(data_path, cache='./image-net.tfcache', train=False):
     path_ds = tf.data.Dataset.from_tensor_slices(all_image_paths)
     dataset = path_ds.map(process_path, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     #image_label_ds = image_label_ds.cache(cache)
-    #if train:
+    if train:
 #         #dataset = dataset.cache(cache)
-    #    dataset = dataset.shuffle(buffer_size=100)       
+        dataset = dataset.shuffle(buffer_size=6000)       
     
     dataset = dataset.repeat()
         
@@ -157,13 +159,13 @@ model.save('./model.h5')
 targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
 
 targets
-opt = keras.optimizers.RMSprop(lr=0.00005, decay=1e-6)
+opt = keras.optimizers.RMSprop(lr=0.0005, decay=1e-6)
 model.compile(loss='categorical_crossentropy',
         optimizer=opt,
-        metrics=['accuracy'])
+        metrics=['accuracy', tf.keras.metrics.top_k_categorical_accuracy])
 
 #tensorboard_acc = keras.callbacks.TensorBoard(log_dir=f'./logs/train/model_acc/', update_freq='batch')
-scores = model.evaluate(test_generator, verbose=1, steps=VALIDATION_SIZE//BATCH_SIZE // 400, callbacks=[] )
+scores = model.evaluate(test_generator, verbose=1, steps=VALIDATION_SIZE//BATCH_SIZE // TEST_VALUE, callbacks=[] )
 print('Test loss:', scores[0])
 print('Test accuracy:', scores[1])
 
@@ -182,11 +184,7 @@ while len(targets) > 1:
     get_output = tf.keras.Model(inputs=model.input, 
                                 outputs=[model.layers[target - 1].output,
                                         model.layers[target].output])
-    optimizer = keras.optimizers.Adam(lr=0.001, decay=1e-6)
-
-    loss_object = tf.losses.MeanSquaredError()
-        
-        #get_output.compile(loss=loss_object, optimizer=optimizer)
+    
 
     get_output.save('./output.h5')
     
@@ -200,8 +198,17 @@ while len(targets) > 1:
     replacement_layers = build_replacement(get_output)
 
     replacement_len = len(replacement_layers.layers)
+    
 
-    optimizer = keras.optimizers.Adam(lr=0.001, decay=1e-6)
+
+    initial_learning_rate = 0.1
+    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate,
+        decay_steps=100000,
+        decay_rate=0.2,
+        staircase=True)
+    optimizer= tf.keras.optimizers.Adam(learning_rate=lr_schedule)
+
 
     loss_object = tf.losses.MeanSquaredError()
 
@@ -215,15 +222,15 @@ while len(targets) > 1:
     layer_train_gen = LayerBatch(get_output, train_generator)
     layer_test_gen = LayerTest(get_output, test_generator)
     
-    tensorboard = keras.callbacks.TensorBoard(log_dir=f'./logs/train/layer_{target}')
+    #tensorboard = keras.callbacks.TensorBoard(log_dir=f'./logs/train/layer_{target}')
 
     print(f'starting fit generator for target layer {target}')
     replacement_layers.fit(x=layer_train_gen, 
-                                    epochs=1, 
-                                    steps_per_epoch=TRAIN_SIZE // BATCH_SIZE // 10 // 400,
+                                    epochs=EPOCHS, 
+                                    steps_per_epoch=TRAIN_SIZE // BATCH_SIZE // TEST_VALUE,
                                     validation_data=layer_test_gen,
                                     shuffle=False,
-                                    validation_steps=VALIDATION_SIZE// BATCH_SIZE // 10 // 400,
+                                    validation_steps=VALIDATION_SIZE// BATCH_SIZE // TEST_VALUE,
                                     verbose=1, callbacks=[save])
     
     print('saving replacement layers to json')
@@ -271,7 +278,7 @@ while len(targets) > 1:
     opt = keras.optimizers.RMSprop(lr=0.00005, decay=1e-6)
     combined.compile(loss='categorical_crossentropy',
             optimizer=opt,
-            metrics=['accuracy'])
+            metrics=['accuracy', tf.keras.metrics.top_k_categorical_accuracy])
 
     
     #combined.summary()
@@ -350,7 +357,7 @@ while len(targets) > 1:
         
     new_combined.compile(loss='categorical_crossentropy',
                 optimizer=opt,
-                metrics=['accuracy'])
+                metrics=['accuracy', tf.keras.metrics.top_k_categorical_accuracy])
     del combined
     gc.collect()
 
@@ -376,7 +383,7 @@ while len(targets) > 1:
     #new_combined.load_weights('./refactor_finetune.h5')
     #new_combined.save('.refactor_finetune.h5')
     
-    scores = new_combined.evaluate(test_generator, steps=VALIDATION_SIZE//BATCH_SIZE // 400, verbose=1, callbacks=[])
+    scores = new_combined.evaluate(test_generator, steps=VALIDATION_SIZE//BATCH_SIZE// TEST_VALUE , verbose=1, callbacks=[])
     print('Test loss:', scores[0])
     print('Test accuracy:', scores[1])
 
@@ -386,7 +393,7 @@ while len(targets) > 1:
 
     model.compile(loss='categorical_crossentropy',
             optimizer=opt,
-            metrics=['accuracy'])
+            metrics=['accuracy', tf.keras.metrics.top_k_categorical_accuracy])
     t = time.time() - start_time
     all_scores.append({f'layer {target}': [float(score) for score in scores], f'time': float(t)})
     #model.summary()
