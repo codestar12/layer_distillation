@@ -43,9 +43,9 @@ from tensorflow.keras.models import load_model
 # In[ ]:
 
 
-from keras.datasets import cifar10
-from keras.datasets import cifar100
-from keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.datasets import cifar10
+from tensorflow.keras.datasets import cifar100
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import os
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
@@ -79,6 +79,17 @@ if __name__ == "__main__":
                         help='Number of epochs to retrain layers on real layer activations',
                         type=int,
                         default=50)
+
+    parser.add_argument('-bl',
+                    '--block_layers',
+                    help='Number of layers in each block',
+                    type=int,
+                    default=2)
+
+    parser.add_argument('-bn',
+                    '--batch_norm',
+                    choices=('True', 'False'),
+                    default='True')
     
     parser.add_argument('-me',
                         '--model_train_epochs',
@@ -112,6 +123,7 @@ if __name__ == "__main__":
 
 
     args = parser.parse_args()
+    batch_norm = args.batch_norm == 'True'
     model_path, model_name = os.path.split(args.model_directory)
     if not os.path.exists(model_path):
         os.mkdir(model_path)
@@ -130,7 +142,6 @@ if __name__ == "__main__":
 
 
 
-    batch_size = 32
     if args.dataset == 'cifar10' or args.dataset == 'ds+cifar10':
         num_classes = 10
         (x_train, y_train), (x_test, y_test) = cifar10.load_data()
@@ -148,8 +159,8 @@ if __name__ == "__main__":
     print(x_test.shape[0], 'test samples')
 
     # Convert class vectors to binary class matrices.
-    y_train = keras.utils.to_categorical(y_train, num_classes)
-    y_test = keras.utils.to_categorical(y_test, num_classes)
+    y_train = tf.keras.utils.to_categorical(y_train, num_classes)
+    y_test = tf.keras.utils.to_categorical(y_test, num_classes)
 
     x_train = x_train.astype('float32')
     x_test = x_test.astype('float32')
@@ -164,7 +175,7 @@ if __name__ == "__main__":
         raise("normalize method not recognized use either std or prod")
 
     
-    opt = keras.optimizers.RMSprop(lr=0.0001, decay=1e-6)
+    opt = tf.keras.optimizers.RMSprop(lr=0.0001, decay=1e-6)
     model = load_model(replace_path + '/' + replace_name)
     # Let's train the model using RMSprop
     model.compile(loss='categorical_crossentropy',
@@ -176,7 +187,7 @@ if __name__ == "__main__":
     # In[ ]:
 
 
-    scores = model.evaluate(x_test, y_test, verbose=1)
+    scores = model.evaluate(x_test, y_test, verbose=2)
     print('Test loss:', scores[0])
     print('Test accuracy:', scores[1])
     log['original_acc'] = float(scores[1])
@@ -212,9 +223,10 @@ if __name__ == "__main__":
     dataset = None
     if 'ds' not in args.dataset:
         dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
-
+        dataset = dataset.shuffle(buffer_size=50000)
         dataset = dataset.batch(batch_size)
         dataset = dataset.repeat()
+        #dataset = dataset.shuffle(buffer)
     else:
         data_root = pathlib.Path('/home/cody/layer-distillation//data/train_32x32/')
         all_image_paths = list(data_root.glob('*'))
@@ -241,19 +253,27 @@ if __name__ == "__main__":
     # In[ ]:
 
 
-    def build_replacement(get_output):
+    def build_replacement(get_output, layers=2 , batch_norm=True):
         inputs = tf.keras.Input(shape=get_output.output[0].shape[1::])
-        X = tf.keras.layers.SeparableConv2D(filters=get_output.output[1].shape[-1], 
-                                            kernel_size= (3,3),
-                                            padding='Same')(inputs)
-        X = tf.keras.layers.BatchNormalization(name=f"replacement_batchnorm_{build_replacement.counter}")(X)
-        X = tf.keras.layers.ReLU(name=f"replacement_relu_{build_replacement.counter}")(X)
+
+        #build as many layers as needed
+        for i in range(layers-1):
+            X = tf.keras.layers.SeparableConv2D(name=f'sep_conv_{build_replacement.counter}',
+                                                filters=get_output.output[1].shape[-1], 
+                                                kernel_size= (3,3),
+                                                padding='Same')(inputs)
+            if batch_norm:
+                X = tf.keras.layers.BatchNormalization(name=f"replacement_batchnorm_{build_replacement.counter}")(X)
+            X = tf.keras.layers.ReLU(name=f"replacement_relu_{build_replacement.counter}")(X)
+            
+            build_replacement.counter += 1
+
+        #at least the last layer must have batch norm
+        X = tf.keras.layers.SeparableConv2D(name=f'sep_conv_{build_replacement.counter}',
+                                                filters=get_output.output[1].shape[-1], 
+                                                kernel_size= (3,3),
+                                                padding='Same')(inputs)
         
-        build_replacement.counter += 1
-        
-        X = tf.keras.layers.SeparableConv2D(filters=get_output.output[1].shape[-1],
-                                            kernel_size=(3,3), 
-                                            padding='Same')(X)
         X = tf.keras.layers.BatchNormalization(name=f"replacement_batchnorm_{build_replacement.counter}")(X)
         X = tf.keras.layers.ReLU(name=f"replacement_relu_{build_replacement.counter}")(X)
         
@@ -277,7 +297,7 @@ if __name__ == "__main__":
             
         def __len__(self):
 
-            return math.ceil(50000 / 32)
+            return math.ceil(50000 / batch_size)
             
         
         def __getitem__(self, index):
@@ -292,7 +312,7 @@ if __name__ == "__main__":
             self.dataset = dataset.__iter__()
             
         def __len__(self):
-            return math.ceil(10000 / 32)
+            return math.ceil(10000 / batch_size)
         
         def __getitem__(self, index):
             X, y = self.input_model(next(self.dataset))
@@ -302,38 +322,7 @@ if __name__ == "__main__":
     # In[ ]:
 
 
-    datagen = ImageDataGenerator(
-        featurewise_center=False,  # set input mean to 0 over the dataset
-        samplewise_center=False,  # set each sample mean to 0
-        featurewise_std_normalization=False,  # divide inputs by std of the dataset
-        samplewise_std_normalization=False,  # divide each input by its std
-        zca_whitening=False,  # apply ZCA whitening
-        zca_epsilon=1e-06,  # epsilon for ZCA whitening
-        rotation_range=0,  # randomly rotate images in the range (degrees, 0 to 180)
-        # randomly shift images horizontally (fraction of total width)
-        width_shift_range=0.1,
-        # randomly shift images vertically (fraction of total height)
-        height_shift_range=0.1,
-        shear_range=0.,  # set range for random shear
-        zoom_range=0.,  # set range for random zoom
-        channel_shift_range=0.,  # set range for random channel shifts
-        # set mode for filling points outside the input boundaries
-        fill_mode='nearest',
-        cval=0.,  # value used for fill_mode = "constant"
-        horizontal_flip=True,  # randomly flip images
-        vertical_flip=False,  # randomly flip images
-        # set rescaling factor (applied before any other transformation)
-        rescale=None,
-        # set function that will be applied on each input
-        preprocessing_function=None,
-        # image data format, either "channels_first" or "channels_last"
-        data_format=None,
-        # fraction of images reserved for validation (strictly between 0 and 1)
-        validation_split=0.0)
-
-    # Compute quantities required for feature-wise normalization
-    # (std, mean, and principal components if ZCA whitening is applied).
-    datagen.fit(x_train)
+    model.save('./model.h5')
 
     import gc
     # we ignore the first conv layer 
@@ -356,17 +345,27 @@ if __name__ == "__main__":
                                     outputs=[model.layers[target - 1].output,
                                             model.layers[target].output])
         
+        get_output.save('./output.h5')
+
+        tf.keras.backend.clear_session()
+
+        get_output = tf.keras.models.load_model('./output.h5')
+        
         print(f'making replacement layers for target layer {target}')
-        replacement_layers = build_replacement(get_output)
+        replacement_layers = build_replacement(get_output, args.block_layers, batch_norm)
         
         replacement_len = len(replacement_layers.layers)
         
-        learning_rate=.001
+        initial_learning_rate = 0.01
+        # lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        #     initial_learning_rate,
+        #     decay_steps=50000 * (args.layer_train_epochs // 4) // batch_size,
+        #     decay_rate=0.2,
+        #     staircase=True)
+        optimizer= tf.keras.optimizers.RMSprop(learning_rate=initial_learning_rate)
         
 #         if 'ds' in args.dataset:
 #             learning_rate=.01
-        
-        optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
 
         loss_object = tf.losses.MeanSquaredError()
         
@@ -389,7 +388,7 @@ if __name__ == "__main__":
         replacement_layers.fit_generator(generator=train_gen, 
                                         epochs=args.layer_train_epochs, 
                                         validation_data=test_gen ,
-                                        verbose=1, callbacks=[save, ReduceLR, earlyStop])
+                                        verbose=1, callbacks=[save, ReduceLR,earlyStop])
         
 
 
@@ -401,6 +400,8 @@ if __name__ == "__main__":
             json_file.write(replacement_json)
             
         del replacement_layers
+
+        tf.keras.backend.clear_session()
         
         with open(model_path + '/' +'replacement_layer.json', 'r') as json_file:
             replacement_layers = tf.keras.models.model_from_json(json_file.read())
@@ -412,6 +413,7 @@ if __name__ == "__main__":
         print(f'layer loss: {layer_loss}')
         
         layer_log['loss'] = float(layer_loss)
+        model = tf.keras.models.load_model('./model.h5')
         # build top half of model
         print('building top half of model')
         get_output = tf.keras.Model(inputs=model.input, outputs=[model.layers[target - 1].output])
@@ -439,7 +441,7 @@ if __name__ == "__main__":
         del bottom_half, new_joint, replacement_layers, model
         
         print('testing combined model')
-        scores = combined.evaluate(x_test, y_test, verbose=1)
+        scores = combined.evaluate(x_test, y_test, verbose=2)
         print('Test loss:', scores[0])
         print('Test accuracy:', scores[1])
 
@@ -513,42 +515,53 @@ if __name__ == "__main__":
                                                     save_best_only=True)
         print('fine tuning combined model')
         
-        new_combined.save_weights(model_path + '/' + model_name + 'holdout')
-#         new_combined.fit(x=x_train, y=y_train, validation_data=(x_test, y_test), epochs=5, callbacks=[new_save])
-        new_combined.fit_generator(datagen.flow(x_train, y_train,
-                                        batch_size=batch_size),
-                            epochs=args.model_train_epochs,
-                            validation_data=(x_test, y_test),
-                            #workers=5,
-                            callbacks=[new_save])
         
-        print('loading best weights from fine tune')
-        new_combined.load_weights(model_path + '/' + model_name)
+        new_combined.save_weights(model_path + '/' + model_name + 'holdout')
+# #         new_combined.fit(x=x_train, y=y_train, validation_data=(x_test, y_test), epochs=5, callbacks=[new_save])
+        if args.model_train_epochs > 0:
+            new_combined.fit(
+                        dataset,
+                        epochs=args.model_train_epochs,
+                        validation_data=dataset_test,
+                                #workers=5,
+                        callbacks=[new_save])
+        
+            print('loading best weights from fine tune')
+            new_combined.load_weights(model_path + '/' + model_name)
 
-        print('testing fine-tuned combined model')
-        scores = new_combined.evaluate(x_test, y_test, verbose=1)
-        print('Test loss:', scores[0])
-        print('Test accuracy:', scores[1])
-        layer_log['fine_tune_model_loss'] = float(scores[0])
-        layer_log['fine_tune_acc'] = float(scores[1]) 
+            print('testing fine-tuned combined model')
+            scores = new_combined.evaluate(x_test, y_test, verbose=2)
+            print('Test loss:', scores[0])
+            print('Test accuracy:', scores[1])
+            layer_log['fine_tune_model_loss'] = float(scores[0])
+            layer_log['fine_tune_acc'] = float(scores[1]) 
+            
+            if old_loss < scores[0]:
+                print('loading none finetuned weightss')
+                new_combined.load_weights(model_path + '/' + model_name + 'holdout')
+
         layer_end_time = time.time()
         layer_log['train_time'] = float(layer_end_time - layer_start_time)
         log['layer'].append(layer_log)
         
-        if old_loss < scores[0]:
-            print('loading none finetuned weightss')
-            new_combined.load_weights(model_path + '/' + model_name + 'holdout')
         
-        model = new_combined
+            
+        
+        model = tf.keras.Model(inputs=new_combined.input, outputs=new_combined.output)
+        
         del new_combined
-        print('new summary')
-        model.summary()
+        #print('new summary')
+        model.save('./model.h5')
+        tf.keras.backend.clear_session()
+        model = tf.keras.models.load_model('./model.h5')
+        #model.summary()
         targets = [i for i, layer in enumerate(model.layers) if layer.__class__.__name__ == 'Conv2D']
         layer_counter += 1
     
     end_time = time.time()
     log['train_time'] = float(end_time - start_time)
 
+    model.summary()
     if args.save_logs:
         with open(log_path + '/' + log_name, 'w') as f:
             json.dump(log, f)
