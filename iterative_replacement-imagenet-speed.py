@@ -8,7 +8,7 @@ import numpy as np
 BATCH_SIZE = 8
 VALIDATION_SIZE = 50000
 TRAIN_SIZE = 1281167
-EPOCHS=3
+EPOCHS=2
 TEST_VALUE = 1 # value to speed up training if doing testing set to 1 for actual run
 import pathlib
 import time
@@ -204,7 +204,7 @@ while len(targets) > 1:
     initial_learning_rate = 0.1
     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         initial_learning_rate,
-        decay_steps=100000,
+        decay_steps=TRAIN_SIZE // BATCH_SIZE // EPOCHS // 2,
         decay_rate=0.2,
         staircase=True)
     optimizer= tf.keras.optimizers.Adam(learning_rate=lr_schedule)
