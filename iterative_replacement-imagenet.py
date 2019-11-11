@@ -60,7 +60,7 @@ class LayerBatch(tf.keras.utils.Sequence):
         self.dataset = dataset.__iter__()
         
     def __len__(self):
-        return math.ceil(1281167 // BATCH_SIZE // 5)
+        return math.ceil(1281167 // BATCH_SIZE // 10)
     
     def __getitem__(self, index):
         X, y = self.input_model(next(self.dataset))
@@ -207,11 +207,11 @@ while len(targets) > 1:
 
     print(f'starting fit generator for target layer {target}')
     replacement_layers.fit(x=layer_train_gen, 
-                                    epochs=7, 
+                                    epochs=18, 
                                     validation_data=layer_test_gen,
                                     shuffle=False,
-                                    validation_steps=VALIDATION_SIZE//5,
-                                    verbose=2, callbacks=[save, tensorboard])
+                                    validation_steps=VALIDATION_SIZE//10,
+                                    verbose=1, callbacks=[save, tensorboard])
     
     print('saving replacement layers to json')
     
