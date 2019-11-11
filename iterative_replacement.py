@@ -95,7 +95,14 @@ if __name__ == "__main__":
                         '--model_train_epochs',
                         help='Number of epochs to retrain model for fine tuning',
                         type=int,
-                        default=5)                   
+                        default=5)
+
+        
+    parser.add_argument('-bs',
+                        '--batch_size',
+                        help='Number of epochs to retrain model for fine tuning',
+                        type=int,
+                        default=32)                    
 
     parser.add_argument('-md',
                         '--model_directory',
@@ -139,6 +146,8 @@ if __name__ == "__main__":
         log_path, log_name = os.path.split(args.log_dir)
         if not os.path.exists(log_path):
             os.mkdir(log_path)
+        
+    batch_size = args.batch_size
 
 
 
@@ -255,9 +264,10 @@ if __name__ == "__main__":
 
     def build_replacement(get_output, layers=2 , batch_norm=True):
         inputs = tf.keras.Input(shape=get_output.output[0].shape[1::])
-
+        X = None
         #build as many layers as needed
-        for i in range(layers-1):
+        for i in range(layers - 1):
+            print(i)
             X = tf.keras.layers.SeparableConv2D(name=f'sep_conv_{build_replacement.counter}',
                                                 filters=get_output.output[1].shape[-1], 
                                                 kernel_size= (3,3),
@@ -272,8 +282,9 @@ if __name__ == "__main__":
         X = tf.keras.layers.SeparableConv2D(name=f'sep_conv_{build_replacement.counter}',
                                                 filters=get_output.output[1].shape[-1], 
                                                 kernel_size= (3,3),
-                                                padding='Same')(inputs)
+                                                padding='Same')(inputs if layers < 2 else X)
         
+        #if batch_norm:
         X = tf.keras.layers.BatchNormalization(name=f"replacement_batchnorm_{build_replacement.counter}")(X)
         X = tf.keras.layers.ReLU(name=f"replacement_relu_{build_replacement.counter}")(X)
         
@@ -352,6 +363,7 @@ if __name__ == "__main__":
         get_output = tf.keras.models.load_model('./output.h5')
         
         print(f'making replacement layers for target layer {target}')
+        print(f'layers {args.block_layers}')
         replacement_layers = build_replacement(get_output, args.block_layers, batch_norm)
         
         replacement_len = len(replacement_layers.layers)
@@ -370,6 +382,8 @@ if __name__ == "__main__":
         loss_object = tf.losses.MeanSquaredError()
         
         replacement_layers.compile(loss=loss_object, optimizer=optimizer)
+
+        replacement_layers.summary()
         
         save = tf.keras.callbacks.ModelCheckpoint(model_path + '/' + 'replacement_layer.h5', 
                                                 verbose=1, 
